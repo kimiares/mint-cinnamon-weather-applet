@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.cinnamon.applets.mint-weather" path="/org/cinnamon/applets/mint-weather/">
+    <key name="latitude" type="d">
+      <default>55.7558</default>
+      <summary>Latitude</summary>
+      <description>Latitude of the location to show weather for.</description>
+    </key>
+    <key name="longitude" type="d">
+      <default>37.6173</default>
+      <summary>Longitude</summary>
+      <description>Longitude of the location to show weather for.</description>
+    </key>
+    <key name="timezone" type="s">
+      <default>'auto'</default>
+      <summary>Timezone</summary>
+      <description>Timezone for the forecast (e.g. "Europe/Moscow" or "auto").</description>
+    </key>
+    <key name="city-name" type="s">
+      <default>'Shepetivka'</default>
+      <summary>City display name</summary>
+      <description>Name shown in the widget header (purely cosmetic).</description>
+    </key>
+    <key name="refresh-interval" type="i">
+      <default>600</default>
+      <summary>Refresh interval (seconds)</summary>
+      <description>How often to refresh weather data in seconds.</description>
+    </key>
+  </schema>
+</schemalist>

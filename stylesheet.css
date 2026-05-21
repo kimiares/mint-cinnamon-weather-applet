@@ -1,0 +1,76 @@
+/* ── Popup header ────────────────────────────────────────────────────── */
+.weather-header-item {
+    padding: 8px 12px 4px;
+}
+
+.weather-header-label {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #e0e0e0;
+}
+
+/* ── Column header row ───────────────────────────────────────────────── */
+.weather-col-header-item {
+    padding: 2px 12px 4px;
+}
+
+.weather-col-header {
+    font-size: 0.8em;
+    font-weight: bold;
+    color: #9e9e9e;
+    text-transform: uppercase;
+}
+
+/* ── Data rows ───────────────────────────────────────────────────────── */
+.weather-day-item {
+    padding: 2px 12px;
+}
+
+.weather-row {
+    spacing: 0px;
+    border-radius: 4px;
+    padding: 4px 0px;
+}
+
+/* Highlight today's row */
+.weather-row.weather-today {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-left: 3px solid #4fc3f7;
+    border-radius: 4px;
+    padding-left: 4px;
+}
+
+/* ── Cell widths (fixed so columns line up) ──────────────────────────── */
+.weather-cell,
+.weather-col-header {
+    min-width: 0px;
+}
+
+/* col-0: date */
+.weather-col-0 { width: 72px; }
+/* col-1: description */
+.weather-col-1 { width: 150px; }
+/* col-2: temperature */
+.weather-col-2 { width: 90px;  }
+/* col-3: wind */
+.weather-col-3 { width: 80px;  }
+/* col-4: humidity */
+.weather-col-4 { width: 60px;  }
+/* col-5: cloudcover */
+.weather-col-5 { width: 60px;  }
+
+/* ── Cell text ───────────────────────────────────────────────────────── */
+.weather-cell {
+    font-size: 0.95em;
+    color: #d0d0d0;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+.weather-footer-item {
+    padding: 4px 12px 6px;
+}
+
+.weather-footer-label {
+    font-size: 0.75em;
+    color: #757575;
+}

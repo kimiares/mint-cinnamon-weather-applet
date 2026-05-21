@@ -123,7 +123,7 @@ WeatherApplet.prototype = {
 
         // ── Popup menu ──
         this.menuManager = new PopupMenu.PopupMenuManager(this);
-        this.menu = new PopupMenu.PopupMenu(this.actor, 0.0, orientation);
+        this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
         this._menuBuilt = false;
 

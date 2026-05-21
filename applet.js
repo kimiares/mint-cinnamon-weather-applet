@@ -123,7 +123,7 @@ WeatherApplet.prototype = {
 
         // ── Popup menu ──
         this.menuManager = new PopupMenu.PopupMenuManager(this);
-        this.menu = new PopupMenu.PopupMenu(this.actor, 0.0, orientation);
+        this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
         this._menuBuilt = false;
 
@@ -166,7 +166,7 @@ WeatherApplet.prototype = {
         // Column headers
         const colItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-col-header-item' });
         const colBox  = new St.BoxLayout({ style_class: 'weather-row' });
-        ['День', 'Погода', 'Темп.', 'Ветер', 'Влажн.', 'Облачн.'].forEach((h, i) => {
+        ['День', 'Погода', 'Темп.', 'Ветер', 'Дождь', 'Рассвет / Закат'].forEach((h, i) => {
             const lbl = new St.Label({ text: h, style_class: `weather-col-header weather-col-${i}` });
             colBox.add_child(lbl);
         });
@@ -222,16 +222,18 @@ WeatherApplet.prototype = {
             const tmax   = fc.tmax[i]   !== null ? `+${Math.round(fc.tmax[i])}°` : '—';
             const tmin   = fc.tmin[i]   !== null ? `${Math.round(fc.tmin[i])}°`  : '—';
             const wind   = fc.wind[i]   !== null ? `${Math.round(fc.wind[i])} ${windArrow(fc.winddir[i])}` : '—';
-            const humid  = fc.humidity[i] !== null ? `${fc.humidity[i]}%`   : '—';
-            const cloud  = fc.cloud[i]    !== null ? `${fc.cloud[i]}%`      : '—';
+            const precip = fc.precip[i] !== null && fc.precip[i] !== undefined ? `${fc.precip[i]}%` : '—';
+            const sunrise = fc.sunrise[i] ? fc.sunrise[i].slice(11, 16) : '—';
+            const sunset  = fc.sunset[i]  ? fc.sunset[i].slice(11, 16)  : '—';
+            const sunStr  = `↑${sunrise} ↓${sunset}`;
             const [, desc] = wmoInfo(fc.codes[i]);
 
             labels[0].set_text(formatDate(date));
             labels[1].set_text(desc);
             labels[2].set_text(`${tmax} / ${tmin}`);
             labels[3].set_text(wind);
-            labels[4].set_text(humid);
-            labels[5].set_text(cloud);
+            labels[4].set_text(precip);
+            labels[5].set_text(sunStr);
 
             // Highlight today
             const todayStyle = isToday(date) ? 'weather-today' : '';
@@ -244,8 +246,8 @@ WeatherApplet.prototype = {
 
     // ── Fetch from Open-Meteo ─────────────────────────────────────────────
     _refresh: function() {
-        const daily  = 'temperature_2m_max,temperature_2m_min,windspeed_10m_max,winddirection_10m_dominant,weathercode';
-        const hourly = 'relative_humidity_2m,cloudcover';
+        const daily  = 'temperature_2m_max,temperature_2m_min,windspeed_10m_max,winddirection_10m_dominant,weathercode,precipitation_probability_max,sunrise,sunset';
+        const hourly = 'relative_humidity_2m';
         const url    = `https://api.open-meteo.com/v1/forecast?latitude=${this._lat}&longitude=${this._lon}`
                      + `&daily=${daily}&hourly=${hourly}&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;
 
@@ -305,7 +307,9 @@ WeatherApplet.prototype = {
                 winddir:  daily.winddirection_10m_dominant || [],
                 codes:    daily.weathercode            || [],
                 humidity: hourlyMeans(hourly.relative_humidity_2m || [], days),
-                cloud:    hourlyMeans(hourly.cloudcover || [], days),
+                precip:   daily.precipitation_probability_max || [],
+                sunrise:  daily.sunrise || [],
+                sunset:   daily.sunset  || [],
             };
 
             // Update panel icon and temperature label from today's weather code

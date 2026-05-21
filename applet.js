@@ -166,7 +166,7 @@ WeatherApplet.prototype = {
         // Column headers
         const colItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-col-header-item' });
         const colBox  = new St.BoxLayout({ style_class: 'weather-row' });
-        ['День', 'Погода', 'Темп.', 'Ветер', 'Дождь', 'Рассвет / Закат'].forEach((h, i) => {
+        ['День', 'Погода', 'Темп.', 'Ветер', 'Дождь', 'Рассвет / Закат', 'UV', 'Осадки'].forEach((h, i) => {
             const lbl = new St.Label({ text: h, style_class: `weather-col-header weather-col-${i}` });
             colBox.add_child(lbl);
         });
@@ -180,7 +180,7 @@ WeatherApplet.prototype = {
             const box  = new St.BoxLayout({ style_class: 'weather-row' });
 
             const labels = [];
-            for (let c = 0; c < 6; c++) {
+            for (let c = 0; c < 8; c++) {
                 const lbl = new St.Label({ text: '—', style_class: `weather-cell weather-col-${c}` });
                 box.add_child(lbl);
                 labels.push(lbl);
@@ -222,7 +222,9 @@ WeatherApplet.prototype = {
             const tmax   = fc.tmax[i]   !== null ? `+${Math.round(fc.tmax[i])}°` : '—';
             const tmin   = fc.tmin[i]   !== null ? `${Math.round(fc.tmin[i])}°`  : '—';
             const wind   = fc.wind[i]   !== null ? `${Math.round(fc.wind[i])} ${windArrow(fc.winddir[i])}` : '—';
-            const precip = fc.precip[i] !== null && fc.precip[i] !== undefined ? `${fc.precip[i]}%` : '—';
+            const precip    = fc.precip[i] !== null && fc.precip[i] !== undefined ? `${fc.precip[i]}%` : '—';
+            const precipSum = fc.precipSum[i] !== null && fc.precipSum[i] !== undefined ? `${fc.precipSum[i].toFixed(1)}мм` : '—';
+            const uv        = fc.uv[i] !== null && fc.uv[i] !== undefined ? `${Math.round(fc.uv[i])}` : '—';
             const sunrise = fc.sunrise[i] ? fc.sunrise[i].slice(11, 16) : '—';
             const sunset  = fc.sunset[i]  ? fc.sunset[i].slice(11, 16)  : '—';
             const sunStr  = `↑${sunrise} ↓${sunset}`;
@@ -234,6 +236,8 @@ WeatherApplet.prototype = {
             labels[3].set_text(wind);
             labels[4].set_text(precip);
             labels[5].set_text(sunStr);
+            labels[6].set_text(uv);
+            labels[7].set_text(precipSum);
 
             // Highlight today
             const todayStyle = isToday(date) ? 'weather-today' : '';
@@ -246,7 +250,7 @@ WeatherApplet.prototype = {
 
     // ── Fetch from Open-Meteo ─────────────────────────────────────────────
     _refresh: function() {
-        const daily  = 'temperature_2m_max,temperature_2m_min,windspeed_10m_max,winddirection_10m_dominant,weathercode,precipitation_probability_max,sunrise,sunset';
+        const daily  = 'temperature_2m_max,temperature_2m_min,windspeed_10m_max,winddirection_10m_dominant,weathercode,precipitation_probability_max,precipitation_sum,uv_index_max,sunrise,sunset';
         const hourly = 'relative_humidity_2m';
         const url    = `https://api.open-meteo.com/v1/forecast?latitude=${this._lat}&longitude=${this._lon}`
                      + `&daily=${daily}&hourly=${hourly}&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;
@@ -308,6 +312,8 @@ WeatherApplet.prototype = {
                 codes:    daily.weathercode            || [],
                 humidity: hourlyMeans(hourly.relative_humidity_2m || [], days),
                 precip:   daily.precipitation_probability_max || [],
+                precipSum: daily.precipitation_sum           || [],
+                uv:       daily.uv_index_max                 || [],
                 sunrise:  daily.sunrise || [],
                 sunset:   daily.sunset  || [],
             };

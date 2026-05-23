@@ -44,33 +44,6 @@ const WMO_ICONS = {
 // Russian day-of-week abbreviations, Sunday-first
 const DOW_RU = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
-// Emoji fallback per WMO code when symbolic icon not available
-const WMO_EMOJI = {
-    0:  '☀️',
-    1:  '🌤️',
-    2:  '⛅',
-    3:  '☁️',
-    45: '🌫️',
-    48: '🌁',
-    51: '🌦️',
-    53: '🌦️',
-    55: '🌧️',
-    61: '🌦️',
-    63: '🌧️',
-    65: '🌧️',
-    71: '🌨️',
-    73: '🌨️',
-    75: '🌨️',
-    77: '🌨️',
-    80: '🌧️',
-    81: '🌧️',
-    82: '⛈️',
-    85: '🌨️',
-    86: '🌨️',
-    95: '⛈️',
-    99: '⛈️'
-};
-
 // Forecast table column headers (order must match label assignments in _renderDayRow)
 const COL_HEADERS = ['День', 'Погода', 'Темп.', 'Ветер', 'Дождь', 'Рассвет / Закат', 'UV', 'Осадки'];
 
@@ -294,18 +267,10 @@ WeatherApplet.prototype = {
         const fc         = this._forecast;
         const [iconName] = wmoInfo(fc.codes[0]);
         const iconFull   = `${iconName}-symbolic`;
-        const theme = Gtk.IconTheme.get_default();
-        const hasIcon = theme.has_icon(iconFull);
-        const iconToSet  = hasIcon ? iconFull : 'weather-clear-symbolic';
+        const iconToSet  = Gtk.IconTheme.get_default().has_icon(iconFull) ? iconFull : 'weather-clear-symbolic';
         this.set_applet_icon_symbolic_name(iconToSet);
 
         const tmax = fc.tmax[0];
-        const tmin = fc.tmin[0];
-
-        // If the system has no matching symbolic icon, fall back to an emoji in the label
-        const emoji = (!hasIcon && WMO_EMOJI.hasOwnProperty(fc.codes[0])) ? WMO_EMOJI[fc.codes[0]] + ' ' : '';
-
-        if (tmax !== null && tmax !== undefined) {
         const tmin = fc.tmin[0];
         if (tmax !== null && tmax !== undefined) {
             const label = (tmin !== null && tmin !== undefined)

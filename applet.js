@@ -481,7 +481,7 @@ WeatherApplet.prototype = {
                     const norm = { time: [], temperature_2m_max: [], temperature_2m_min: [], windspeed_10m_max: [], winddirection_10m_dominant: [], weathercode: [], precipitation_probability_max: [], precipitation_sum: [], uv_index_max: [], sunrise: [], sunset: [] };
                     for (let i = 0; i < od.length && i < 7; i++) {
                         const it = od[i];
-                        norm.time.push(it.date || null);
+                        norm.time.push(it.date ? it.date.slice(0,10) : null);
                         norm.temperature_2m_max.push((it.tmax !== undefined && it.tmax !== null) ? it.tmax : null);
                         norm.temperature_2m_min.push((it.tmin !== undefined && it.tmin !== null) ? it.tmin : null);
                         // Meteostat wspd is km/h — convert to m/s to match Open-Meteo units

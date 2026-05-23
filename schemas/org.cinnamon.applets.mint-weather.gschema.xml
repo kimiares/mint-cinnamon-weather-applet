@@ -29,7 +29,7 @@
     <key name="data-source" type="s">
       <default>'open-meteo'</default>
       <summary>Data source</summary>
-      <description>Weather data source: 'open-meteo' or 'openweathermap'</description>
+      <description>Weather data source: 'open-meteo' or 'meteostat'</description>
     </key>
     <key name="api-key" type="s">
       <default>''</default>

@@ -243,7 +243,7 @@ WeatherApplet.prototype = {
         this._sourceItem.addActor(this._sourceLabel, { expand: true });
         this._sourceItem.connect('activate', () => {
             try {
-                const sources = ['open-meteo','openweathermap'];
+                const sources = ['open-meteo','meteostat'];
                 const idx = sources.indexOf(this._dataSource) >= 0 ? sources.indexOf(this._dataSource) : 0;
                 const next = sources[(idx + 1) % sources.length];
                 let setOk = false;

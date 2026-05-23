@@ -434,6 +434,17 @@ WeatherApplet.prototype = {
             const endD = (function() { const d = new Date(); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); })();
             url = `https://meteostat.p.rapidapi.com/point/daily?lat=${this._lat}&lon=${this._lon}&start=${start}&end=${endD}&alt=&units=metric`;
             extraHeaders = { 'x-rapidapi-host': 'meteostat.p.rapidapi.com', 'x-rapidapi-key': key };
+
+            // Runtime test: perform a curl request immediately and write status to runtime log to verify key usage
+            try {
+                const dbg2 = '/home/constantine/.copilot/session-state/mint-weather-runtime.log';
+                const masked = (key && key.length>8) ? (key.slice(0,4) + '...' + key.slice(-4)) : (key || '');
+                // Build curl with headers safely
+                const safeKey = key.replace(/'/g, "'\\''");
+                const curlCmd = `curl -s -o /dev/null -w '%{http_code} %{url_effective}\n' -H 'x-rapidapi-host: meteostat.p.rapidapi.com' -H 'x-rapidapi-key: ${safeKey}' '${url}'`;
+                GLib.spawn_command_line_sync(`bash -c "printf '=== RUNTIME CABLE TEST %s masked=%s\\n' \"$(date -Iseconds)\" \"${masked}\" >> '${dbg2}'"`);
+                GLib.spawn_command_line_sync(`bash -c \"${curlCmd} >> '${dbg2}' 2>&1\"");
+            } catch (e) { global.logError('mint-weather: runtime curl test failed: ' + e); }
         } else {
             url = `https://api.open-meteo.com/v1/forecast?latitude=${this._lat}&longitude=${this._lon}`
                  + `&daily=${daily}&hourly=${hourly}&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;

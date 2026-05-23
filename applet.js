@@ -390,61 +390,15 @@ WeatherApplet.prototype = {
             }
             url = `https://api.openweathermap.org/data/2.5/onecall?lat=${this._lat}&lon=${this._lon}&exclude=minutely,hourly&units=metric&appid=${this._apiKey}&lang=ru`;
         } else if (this._dataSource === 'meteostat') {
-            // Meteostat via RapidAPI requires x-rapidapi-host and x-rapidapi-key headers
-            // Ensure we have a meteostat key at runtime: check settings, then local schema file, then fallback to apiKey
-            let key = (this._meteostatKey && this._meteostatKey.length) ? this._meteostatKey : (this._apiKey || '');
-
-            // Diagnostic logging to file for debugging key detection
-            try {
-                const dbg = '/home/constantine/.copilot/session-state/mint-weather-debug.log';
-                const now = new Date().toISOString();
-                const meta = this._metadataPath ? this._metadataPath : 'NULL';
-                const pre = `--- ${now} REFRESH START (dataSource=${this._dataSource}) ---\nmetadataPath=${meta}\nmeteostatKey_len=${this._meteostatKey ? this._meteostatKey.length : 0}\napiKey_len=${this._apiKey ? this._apiKey.length : 0}\ninitial_key_len=${key ? key.length : 0}\n`;
-                GLib.spawn_command_line_sync(`bash -c "printf '%s' \"${pre}\" >> '${dbg}'"`);
-                if ((!key || key.length === 0) && this._metadataPath) {
-                    try {
-                        const schemaPath = this._metadataPath + '/schemas/org.cinnamon.applets.mint-weather.gschema.xml';
-                        const exists = GLib.file_test(schemaPath, GLib.FileTest.EXISTS);
-                        GLib.spawn_command_line_sync(`bash -c "printf 'schema_exists=${exists}\n' >> '${dbg}'"`);
-                        const [ok, contents] = GLib.file_get_contents(schemaPath);
-                        if (ok && contents) {
-                            const txt = ByteArray.toString(contents);
-                            const m = txt.match(/<key\s+name="meteostat-api-key"[\s\S]*?<default>([\s\S]*?)<\/default>/i);
-                            if (m && m[1]) {
-                                const raw = m[1].trim().replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
-                                GLib.spawn_command_line_sync(`bash -c "printf 'schema_default_raw=%s\\n' \"${raw}\" >> '${dbg}'"`);
-                                if (raw && raw.length > 0) key = raw;
-                            } else {
-                                GLib.spawn_command_line_sync(`bash -c "printf 'schema_default_not_found\\n' >> '${dbg}'"`);
-                            }
-                        } else {
-                            GLib.spawn_command_line_sync(`bash -c "printf 'schema_read_failed\\n' >> '${dbg}'"`);
-                        }
-                    } catch (e) { global.logError('mint-weather: runtime schema read failed: ' + e); GLib.spawn_command_line_sync(`bash -c "printf 'schema_exception=%s\\n' \"${e}\" >> '${dbg}'"`); }
-                }
-                const final = `final_key_len=${key ? key.length : 0}\n`;
-                GLib.spawn_command_line_sync(`bash -c "printf '%s' \"${final}\" >> '${dbg}'"`);
-            } catch (e) { global.logError('mint-weather: debug write failed: ' + e); }
-
-            if (!key || key.length === 0) {
-                this._setError('Meteostat API key not set');
-                return;
-            }
-            const start = (function() { const d = new Date(); d.setDate(d.getDate()); return d.toISOString().slice(0,10); })();
+            // Meteostat via RapidAPI - use hardcoded key as fallback
+            const METEOSTAT_KEY = '5295884457msh2c0134444e26c3ep176f19jsn223c9b2620a2';
+            const key = (this._meteostatKey && this._meteostatKey.length) ? this._meteostatKey
+                      : (this._apiKey && this._apiKey.length) ? this._apiKey
+                      : METEOSTAT_KEY;
+            const start = (function() { const d = new Date(); return d.toISOString().slice(0,10); })();
             const endD = (function() { const d = new Date(); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); })();
-            url = `https://meteostat.p.rapidapi.com/point/daily?lat=${this._lat}&lon=${this._lon}&start=${start}&end=${endD}&alt=&units=metric`;
+            url = `https://meteostat.p.rapidapi.com/point/daily?lat=${this._lat}&lon=${this._lon}&start=${start}&end=${endD}&units=metric`;
             extraHeaders = { 'x-rapidapi-host': 'meteostat.p.rapidapi.com', 'x-rapidapi-key': key };
-
-            // Runtime test: perform a curl request immediately and write status to runtime log to verify key usage
-            try {
-                const dbg2 = '/home/constantine/.copilot/session-state/mint-weather-runtime.log';
-                const masked = (key && key.length>8) ? (key.slice(0,4) + '...' + key.slice(-4)) : (key || '');
-                // Build curl with headers safely
-                const safeKey = key.replace(/'/g, "'\\''");
-                const curlCmd = `curl -s -o /dev/null -w '%{http_code} %{url_effective}\n' -H 'x-rapidapi-host: meteostat.p.rapidapi.com' -H 'x-rapidapi-key: ${safeKey}' '${url}'`;
-                GLib.spawn_command_line_sync(`bash -c "printf '=== RUNTIME CABLE TEST %s masked=%s\\n' \"$(date -Iseconds)\" \"${masked}\" >> '${dbg2}'"`);
-                GLib.spawn_command_line_sync(`bash -c \"${curlCmd} >> '${dbg2}' 2>&1\"");
-            } catch (e) { global.logError('mint-weather: runtime curl test failed: ' + e); }
         } else {
             url = `https://api.open-meteo.com/v1/forecast?latitude=${this._lat}&longitude=${this._lon}`
                  + `&daily=${daily}&hourly=${hourly}&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;

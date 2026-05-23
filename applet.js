@@ -209,6 +209,16 @@ WeatherApplet.prototype = {
                 } catch (e) { global.logError('mint-weather: failed reading schema file for meteostat key: ' + e); }
             }
         } catch (e) { /* ignore */ }
+
+        // Debug: report if meteostat key is present (masked)
+        try {
+            if (this._meteostatKey && this._meteostatKey.length) {
+                const masked = this._meteostatKey.slice(0,4) + '...' + this._meteostatKey.slice(-4);
+                global.log(`mint-weather: meteostat key loaded (default): ${masked}`);
+            } else {
+                global.log('mint-weather: meteostat key not found in settings or local schema');
+            }
+        } catch (e) { /* ignore */ }
     },
 
 

@@ -201,13 +201,23 @@ WeatherApplet.prototype = {
 
     _fetchViaCurl: function(url) {
         try {
-            const cmd = `curl -s --max-time 15 '${url}'`;
-            const [ok, stdout] = GLib.spawn_command_line_sync(cmd);
-            if (ok && stdout) {
-                this._handleResponse(ByteArray.toString(stdout));
-            } else {
-                this._setError('curl failed');
-            }
+            const proc = Gio.Subprocess.new(
+                ['curl', '-s', '--max-time', '15', url],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE
+            );
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                try {
+                    const [, stdout] = p.communicate_utf8_finish(res);
+                    if (stdout) {
+                        this._handleResponse(stdout);
+                    } else {
+                        this._setError('curl failed');
+                    }
+                } catch (e) {
+                    global.logError('mint-weather: curl finish: ' + e);
+                    this._setError('Ошибка запроса');
+                }
+            });
         } catch (e) {
             global.logError('mint-weather: ' + e);
             this._setError('Ошибка запроса');
@@ -417,6 +427,15 @@ WeatherApplet.prototype = {
             GLib.source_remove(this._timer);
             this._timer = null;
         }
+    },
+
+    // Explicit configure handler for right-click "Configure..." menu item
+    configureApplet: function(tab) {
+        if (typeof tab !== 'number') tab = 0;
+        const uuid = this._uuid || 'mint-weather@copilot';
+        const iid  = this.instance_id || '';
+        const cmd  = `xlet-settings applet ${uuid}` + (iid ? ` -i ${iid}` : '') + ` -t ${tab}`;
+        GLib.spawn_command_line_async(cmd);
     },
 };
 

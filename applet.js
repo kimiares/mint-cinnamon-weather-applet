@@ -1,83 +1,89 @@
-const Applet      = imports.ui.applet;
-const PopupMenu   = imports.ui.popupMenu;
-const St          = imports.gi.St;
-const GLib        = imports.gi.GLib;
-const Gio         = imports.gi.Gio;
-const Lang        = imports.lang;
-const ByteArray   = imports.byteArray;
+// ── Imports ───────────────────────────────────────────────────────────────────
+
+const Applet    = imports.ui.applet;
+const PopupMenu = imports.ui.popupMenu;
+const St        = imports.gi.St;
+const GLib      = imports.gi.GLib;
+const Gio       = imports.gi.Gio;
+const ByteArray = imports.byteArray;
 
 let Soup;
 try { Soup = imports.gi.Soup; } catch (e) { Soup = null; }
 
-// ── Weather code → human label + panel icon name ──────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+// WMO weather interpretation code → [icon-name, human label (RU)]
 const WMO_ICONS = {
-    0:  ['weather-clear',         'Ясно'],
-    1:  ['weather-few-clouds',    'Малооблачно'],
-    2:  ['weather-clouds',        'Облачно'],
-    3:  ['weather-overcast',      'Пасмурно'],
-    45: ['weather-fog',           'Туман'],
-    48: ['weather-fog',           'Туман с изморозью'],
+    0:  ['weather-clear',             'Ясно'],
+    1:  ['weather-few-clouds',        'Малооблачно'],
+    2:  ['weather-clouds',            'Облачно'],
+    3:  ['weather-overcast',          'Пасмурно'],
+    45: ['weather-fog',               'Туман'],
+    48: ['weather-fog',               'Туман с изморозью'],
     51: ['weather-showers-scattered', 'Лёгкая морось'],
     53: ['weather-showers-scattered', 'Морось'],
-    55: ['weather-showers',       'Густая морось'],
+    55: ['weather-showers',           'Густая морось'],
     61: ['weather-showers-scattered', 'Лёгкий дождь'],
-    63: ['weather-showers',       'Дождь'],
-    65: ['weather-showers',       'Сильный дождь'],
-    71: ['weather-snow-scattered','Лёгкий снег'],
-    73: ['weather-snow',          'Снег'],
-    75: ['weather-snow',          'Сильный снег'],
-    77: ['weather-snow',          'Снежная крупа'],
+    63: ['weather-showers',           'Дождь'],
+    65: ['weather-showers',           'Сильный дождь'],
+    71: ['weather-snow-scattered',    'Лёгкий снег'],
+    73: ['weather-snow',              'Снег'],
+    75: ['weather-snow',              'Сильный снег'],
+    77: ['weather-snow',              'Снежная крупа'],
     80: ['weather-showers-scattered', 'Ливень'],
-    81: ['weather-showers',       'Ливень'],
-    82: ['weather-storm',         'Сильный ливень'],
-    85: ['weather-snow-scattered','Снежный ливень'],
-    86: ['weather-snow',          'Сильный снежный ливень'],
-    95: ['weather-storm',         'Гроза'],
-    99: ['weather-storm',         'Гроза с градом'],
+    81: ['weather-showers',           'Ливень'],
+    82: ['weather-storm',             'Сильный ливень'],
+    85: ['weather-snow-scattered',    'Снежный ливень'],
+    86: ['weather-snow',              'Сильный снежный ливень'],
+    95: ['weather-storm',             'Гроза'],
+    99: ['weather-storm',             'Гроза с градом'],
 };
 
+// Russian day-of-week abbreviations, Sunday-first
+const DOW_RU = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+// Forecast table column headers (order must match label assignments in _renderDayRow)
+const COL_HEADERS = ['День', 'Погода', 'Темп.', 'Ветер', 'Дождь', 'Рассвет / Закат', 'UV', 'Осадки'];
+
+// ── Utility functions ─────────────────────────────────────────────────────────
+
+// Return [iconName, description] for a WMO weather code
 function wmoInfo(code) {
     if (code === null || code === undefined) return ['weather-severe-alert', 'Нет данных'];
     return WMO_ICONS[code] || ['weather-severe-alert', `Код ${code}`];
 }
 
-
-
-// ── Wind direction degrees → Unicode arrow ────────────────────────────────
+// Wind direction degrees → Unicode arrow showing where wind blows TO
 function windArrow(deg) {
     if (deg === null || deg === undefined) return '';
-    const arrows = ['↓','↙','←','↖','↑','↗','→','↘'];
-    // wind direction = where wind comes FROM; arrow shows where it blows TO
+    const arrows = ['↓', '↙', '←', '↖', '↑', '↗', '→', '↘'];
     const idx = Math.round(((deg + 180) % 360) / 45) % 8;
     return arrows[idx];
 }
 
-// ── Aggregate hourly array (168 values for 7 days) → per-day means ────────
-function hourlyMeans(arr, days) {
-    const result = [];
-    for (let d = 0; d < days; d++) {
-        let sum = 0, count = 0;
-        for (let h = 0; h < 24; h++) {
-            const v = arr[d * 24 + h];
-            if (v !== null && v !== undefined) { sum += v; count++; }
-        }
-        result.push(count > 0 ? Math.round(sum / count) : null);
-    }
-    return result;
+// Format temperature with correct sign prefix: +12 or -3
+function formatTemp(t) {
+    const r = Math.round(t);
+    return r >= 0 ? `+${r}` : `${r}`;
 }
 
-// ── Day-of-week abbreviations (RU) ───────────────────────────────────────
-const DOW_RU = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
-
+// Format an ISO date string as "Dow DD.MM" using Russian abbreviations
 function formatDate(isoStr) {
     const d = new Date(isoStr + 'T12:00:00');
-    const dow = DOW_RU[d.getDay()];
-    return `${dow} ${d.getDate()}.${String(d.getMonth() + 1).padStart(2,'0')}`;
+    return `${DOW_RU[d.getDay()]} ${d.getDate()}.${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// Return true when isoStr (YYYY-MM-DD) matches today's local date
 function isToday(isoStr) {
     const now = new Date();
-    return isoStr === `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const mm  = String(now.getMonth() + 1).padStart(2, '0');
+    const dd  = String(now.getDate()).padStart(2, '0');
+    return isoStr === `${now.getFullYear()}-${mm}-${dd}`;
+}
+
+// Extract HH:MM from an ISO datetime string, or '—' when absent
+function sliceTime(isoDatetime) {
+    return isoDatetime ? isoDatetime.slice(11, 16) : '—';
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -91,6 +97,8 @@ function WeatherApplet(metadata, orientation, panelHeight, instance_id) {
 WeatherApplet.prototype = {
     __proto__: Applet.TextIconApplet.prototype,
 
+    // ── Initialisation ────────────────────────────────────────────────────
+
     _init: function(metadata, orientation, panelHeight, instance_id) {
         Applet.TextIconApplet.prototype._init.call(this, orientation, panelHeight, instance_id);
 
@@ -99,24 +107,7 @@ WeatherApplet.prototype = {
         this.hide_applet_label(false);
         this.set_applet_tooltip('Погода на неделю — нажмите для обновления');
 
-        // ── GSettings ──
-        try {
-            let schemaDir = metadata.path + '/schemas';
-            let schemaSource = Gio.SettingsSchemaSource.new_from_directory(
-                schemaDir,
-                Gio.SettingsSchemaSource.get_default(),
-                false
-            );
-            let schema = schemaSource.lookup('org.cinnamon.applets.mint-weather', true);
-            this._settings = new Gio.Settings({ settings_schema: schema });
-        } catch (e) {
-            global.logError('mint-weather: GSettings schema not found: ' + e);
-            this._settings = null;
-        }
-
-        // remember metadata path for fallback schema reading
-        try { this._metadataPath = metadata.path; } catch (e) { this._metadataPath = null; }
-
+        this._initSettings(metadata);
         this._loadSettings();
 
         if (this._settings) {
@@ -126,19 +117,8 @@ WeatherApplet.prototype = {
             });
         }
 
-        // ── Popup menu ──
-        this.menuManager = new PopupMenu.PopupMenuManager(this);
-        this.menu = new Applet.AppletPopupMenu(this, orientation);
-        this.menuManager.addMenu(this.menu);
-        this._menuBuilt = false;
-
-        // ── HTTP ──
-        if (Soup) {
-            try { this._httpSession = new Soup.Session(); }
-            catch (e) { this._httpSession = null; }
-        } else {
-            this._httpSession = null;
-        }
+        this._initMenu(orientation);
+        this._initHttp();
 
         this._forecast = null;
         this._refresh();
@@ -147,149 +127,62 @@ WeatherApplet.prototype = {
             return GLib.SOURCE_CONTINUE;
         });
     },
-    _loadSettings: function() {
-        this._lat      = this._settings ? this._settings.get_double('latitude')        : 55.7558;
-        this._lon      = this._settings ? this._settings.get_double('longitude')       : 37.6173;
-        this._tz       = this._settings ? this._settings.get_string('timezone')        : 'auto';
-        this._cityName = this._settings ? this._settings.get_string('city-name')       : 'Погода';
-        this._interval = this._settings ? this._settings.get_int('refresh-interval')   : 600;
-        // data source fixed: open-meteo
-        this._dataSource = 'open-meteo';
+
+    _initSettings: function(metadata) {
         try {
-            this._apiKey = this._settings ? this._settings.get_string('api-key') : '';
+            const schemaDir    = metadata.path + '/schemas';
+            const schemaSource = Gio.SettingsSchemaSource.new_from_directory(
+                schemaDir,
+                Gio.SettingsSchemaSource.get_default(),
+                false
+            );
+            const schema = schemaSource.lookup('org.cinnamon.applets.mint-weather', true);
+            this._settings = new Gio.Settings({ settings_schema: schema });
         } catch (e) {
-            this._apiKey = '';
+            global.logError('mint-weather: GSettings schema not found: ' + e);
+            this._settings = null;
         }
     },
 
-
-
-    // ── Build the static popup skeleton ──────────────────────────────────
-    _buildPopupSkeleton: function() {
-        this.menu.removeAll();
-
-        // Header
-        this._headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-header-item' });
-        this._headerLabel = new St.Label({ text: this._cityName, style_class: 'weather-header-label' });
-        this._headerItem.addActor(this._headerLabel, { expand: true });
-        this.menu.addMenuItem(this._headerItem);
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Column headers
-        const colItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-col-header-item' });
-        const colBox  = new St.BoxLayout({ style_class: 'weather-row' });
-        ['День', 'Погода', 'Темп.', 'Ветер', 'Дождь', 'Рассвет / Закат', 'UV', 'Осадки'].forEach((h, i) => {
-            const lbl = new St.Label({ text: h, style_class: `weather-col-header weather-col-${i}` });
-            colBox.add_child(lbl);
-        });
-        colItem.addActor(colBox, { expand: true });
-        this.menu.addMenuItem(colItem);
-
-        // 7 day rows
-        this._dayItems = [];
-        for (let i = 0; i < 7; i++) {
-            const item = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-day-item' });
-            const box  = new St.BoxLayout({ style_class: 'weather-row' });
-
-            const labels = [];
-            for (let c = 0; c < 8; c++) {
-                const lbl = new St.Label({ text: '—', style_class: `weather-cell weather-col-${c}` });
-                box.add_child(lbl);
-                labels.push(lbl);
-            }
-
-            item.addActor(box, { expand: true });
-            this.menu.addMenuItem(item);
-            this._dayItems.push({ item, labels, box });
-        }
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Footer: last update time
-        this._footerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-footer-item' });
-        this._footerLabel = new St.Label({ text: '', style_class: 'weather-footer-label' });
-        this._footerItem.addActor(this._footerLabel, { expand: true });
-        this.menu.addMenuItem(this._footerItem);
-
-        // Mark the popup actor so stylesheet can target day/night adjustments
-        try {
-            if (this.menu && this.menu.actor && this.menu.actor.add_style_class_name) {
-                this.menu.actor.add_style_class_name('weather-popup');
-            }
-        } catch (e) { global.logError('mint-weather: failed to add popup style class: ' + e); }
-
+    _initMenu: function(orientation) {
+        this.menuManager = new PopupMenu.PopupMenuManager(this);
+        this.menu        = new Applet.AppletPopupMenu(this, orientation);
+        this.menuManager.addMenu(this.menu);
+        this._menuBuilt  = false;
     },
 
-    // ── Populate rows from cached forecast ───────────────────────────────
-    _updatePopup: function() {
-        if (!this._forecast) return;
-        if (!this._menuBuilt) return;  // skeleton not ready yet
-
-        this._headerLabel.set_text(`${this._cityName}  —  прогноз на неделю`);
-
-        const fc = this._forecast;
-        const count = Math.min(fc.dates.length, 7);
-
-        for (let i = 0; i < 7; i++) {
-            const { labels, box } = this._dayItems[i];
-
-            if (i >= count) {
-                labels.forEach(l => l.set_text(''));
-                continue;
-            }
-
-            const date   = fc.dates[i];
-            const tmax   = fc.tmax[i]   !== null ? `+${Math.round(fc.tmax[i])}°` : '—';
-            const tmin   = fc.tmin[i]   !== null ? `${Math.round(fc.tmin[i])}°`  : '—';
-            const wind   = fc.wind[i]   !== null ? `${Math.round(fc.wind[i])} ${windArrow(fc.winddir[i])}` : '—';
-            const precip    = fc.precip[i] !== null && fc.precip[i] !== undefined ? `${fc.precip[i]}%` : '—';
-            const precipSum = fc.precipSum[i] !== null && fc.precipSum[i] !== undefined ? `${fc.precipSum[i].toFixed(1)}мм` : '—';
-            const uv        = fc.uv[i] !== null && fc.uv[i] !== undefined ? `${Math.round(fc.uv[i])}` : '—';
-            const sunrise = fc.sunrise[i] ? fc.sunrise[i].slice(11, 16) : '—';
-            const sunset  = fc.sunset[i]  ? fc.sunset[i].slice(11, 16)  : '—';
-            const sunStr  = `↑${sunrise} ↓${sunset}`;
-            const [, desc] = wmoInfo(fc.codes[i]);
-
-            labels[0].set_text(formatDate(date));
-            labels[1].set_text(desc);
-            labels[2].set_text(`${tmax} / ${tmin}`);
-            labels[3].set_text(wind);
-            labels[4].set_text(precip);
-            labels[5].set_text(sunStr);
-            labels[6].set_text(uv);
-            labels[7].set_text(precipSum);
-
-            // Highlight today
-            const todayStyle = isToday(date) ? 'weather-today' : '';
-            box.style_class = `weather-row ${todayStyle}`.trim();
+    _initHttp: function() {
+        if (Soup) {
+            try { this._httpSession = new Soup.Session(); }
+            catch (e) { this._httpSession = null; }
+        } else {
+            this._httpSession = null;
         }
-
-        const now = new Date();
-        this._footerLabel.set_text(`Обновлено: ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`);
-
-        // Day/night brightness toggle based on today's sunrise/sunset
-        try {
-            if (this.menu && this.menu.actor && fc.sunrise && fc.sunset && fc.sunrise[0] && fc.sunset[0]) {
-                const sr = new Date(fc.sunrise[0]);
-                const ss = new Date(fc.sunset[0]);
-                const isDayNow = now >= sr && now < ss;
-                if (this.menu.actor.remove_style_class_name) {
-                    this.menu.actor.remove_style_class_name('weather-day');
-                    this.menu.actor.remove_style_class_name('weather-night');
-                    this.menu.actor.add_style_class_name(isDayNow ? 'weather-day' : 'weather-night');
-                }
-            }
-        } catch (e) { global.logError('mint-weather: day/night toggle failed: ' + e); }
-
     },
 
-    // ── Fetch from Open-Meteo ─────────────────────────────────────────────
-    _refresh: function() {
-        const daily  = 'temperature_2m_max,temperature_2m_min,windspeed_10m_max,winddirection_10m_dominant,weathercode,precipitation_probability_max,precipitation_sum,uv_index_max,sunrise,sunset';
+    _loadSettings: function() {
+        this._lat      = this._settings ? this._settings.get_double('latitude')      : 55.7558;
+        this._lon      = this._settings ? this._settings.get_double('longitude')     : 37.6173;
+        this._tz       = this._settings ? this._settings.get_string('timezone')      : 'auto';
+        this._cityName = this._settings ? this._settings.get_string('city-name')     : 'Погода';
+        this._interval = this._settings ? this._settings.get_int('refresh-interval') : 600;
+    },
+
+    // ── Data fetching ─────────────────────────────────────────────────────
+
+    _buildApiUrl: function() {
+        const daily  = 'temperature_2m_max,temperature_2m_min,windspeed_10m_max,' +
+                       'winddirection_10m_dominant,weathercode,precipitation_probability_max,' +
+                       'precipitation_sum,uv_index_max,sunrise,sunset';
         const hourly = 'relative_humidity_2m';
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${this._lat}&longitude=${this._lon}`
-                  + `&daily=${daily}&hourly=${hourly}&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;
+        return 'https://api.open-meteo.com/v1/forecast'
+             + `?latitude=${this._lat}&longitude=${this._lon}`
+             + `&daily=${daily}&hourly=${hourly}`
+             + `&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;
+    },
+
+    _refresh: function() {
+        const url = this._buildApiUrl();
 
         if (this._httpSession && Soup) {
             try {
@@ -331,54 +224,56 @@ WeatherApplet.prototype = {
         }
     },
 
+    // ── Response handling ─────────────────────────────────────────────────
+
     _handleResponse: function(text) {
         try {
-            const d = JSON.parse(text);
-            if (!d || !d.daily) { this._setError('Нет данных'); return; }
+            const data = JSON.parse(text);
+            if (!data || !data.daily) { this._setError('Нет данных'); return; }
 
-            const daily  = d.daily;
-            const hourly = d.hourly || {};
-            const days   = (daily.time || []).length;
-
-            this._forecast = {
-                dates:    daily.time || [],
-                tmax:     daily.temperature_2m_max     || [],
-                tmin:     daily.temperature_2m_min     || [],
-                wind:     daily.windspeed_10m_max      || [],
-                winddir:  daily.winddirection_10m_dominant || [],
-                codes:    daily.weathercode            || [],
-                humidity: hourlyMeans(hourly.relative_humidity_2m || [], days),
-                precip:   daily.precipitation_probability_max || [],
-                precipSum: daily.precipitation_sum           || [],
-                uv:       daily.uv_index_max                 || [],
-                sunrise:  daily.sunrise || [],
-                sunset:   daily.sunset  || [],
-            };
-
-            // Update panel icon and temperature label from today's weather code
-            const [iconName] = wmoInfo(this._forecast.codes[0]);
-            try {
-                this.set_applet_icon_symbolic_name(`${iconName}-symbolic`);
-            } catch (e) {
-                this.set_applet_icon_symbolic_name('weather-clear-symbolic');
-            }
-
-            // Show today's temperature range next to icon
-            const tmax = this._forecast.tmax[0];
-            const tmin = this._forecast.tmin[0];
-            if (tmax !== null && tmax !== undefined) {
-                const fmt = t => (Math.round(t) >= 0 ? `+${Math.round(t)}` : `${Math.round(t)}`);
-                const label = tmin !== null && tmin !== undefined
-                    ? `${fmt(tmax)}° / ${fmt(tmin)}°`
-                    : `${fmt(tmax)}°`;
-                this.set_applet_label(label);
-                this.set_applet_tooltip(`${this._cityName}: ${label}`);
-            }
-
+            this._forecast = this._parseForecast(data);
+            this._updatePanelIndicator();
             this._updatePopup();
         } catch (e) {
             global.logError('mint-weather: ' + e);
             this._setError('Ошибка разбора');
+        }
+    },
+
+    _parseForecast: function(data) {
+        const daily = data.daily;
+        return {
+            dates:     daily.time                          || [],
+            tmax:      daily.temperature_2m_max            || [],
+            tmin:      daily.temperature_2m_min            || [],
+            wind:      daily.windspeed_10m_max             || [],
+            winddir:   daily.winddirection_10m_dominant    || [],
+            codes:     daily.weathercode                   || [],
+            precip:    daily.precipitation_probability_max || [],
+            precipSum: daily.precipitation_sum             || [],
+            uv:        daily.uv_index_max                  || [],
+            sunrise:   daily.sunrise                       || [],
+            sunset:    daily.sunset                        || [],
+        };
+    },
+
+    _updatePanelIndicator: function() {
+        const fc         = this._forecast;
+        const [iconName] = wmoInfo(fc.codes[0]);
+        try {
+            this.set_applet_icon_symbolic_name(`${iconName}-symbolic`);
+        } catch (e) {
+            this.set_applet_icon_symbolic_name('weather-clear-symbolic');
+        }
+
+        const tmax = fc.tmax[0];
+        const tmin = fc.tmin[0];
+        if (tmax !== null && tmax !== undefined) {
+            const label = (tmin !== null && tmin !== undefined)
+                ? `${formatTemp(tmax)}° / ${formatTemp(tmin)}°`
+                : `${formatTemp(tmax)}°`;
+            this.set_applet_label(label);
+            this.set_applet_tooltip(`${this._cityName}: ${label}`);
         }
     },
 
@@ -389,7 +284,131 @@ WeatherApplet.prototype = {
         if (this._headerLabel) this._headerLabel.set_text(msg);
     },
 
+    // ── Popup construction ────────────────────────────────────────────────
+
+    _buildPopupSkeleton: function() {
+        this.menu.removeAll();
+        this._buildPopupHeader();
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._buildPopupColHeaders();
+        this._buildPopupDayRows();
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._buildPopupFooter();
+        this._addPopupStyleClass('weather-popup');
+    },
+
+    _buildPopupHeader: function() {
+        this._headerItem  = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-header-item' });
+        this._headerLabel = new St.Label({ text: this._cityName, style_class: 'weather-header-label' });
+        this._headerItem.addActor(this._headerLabel, { expand: true });
+        this.menu.addMenuItem(this._headerItem);
+    },
+
+    _buildPopupColHeaders: function() {
+        const colItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-col-header-item' });
+        const colBox  = new St.BoxLayout({ style_class: 'weather-row' });
+        COL_HEADERS.forEach((h, i) => {
+            colBox.add_child(new St.Label({ text: h, style_class: `weather-col-header weather-col-${i}` }));
+        });
+        colItem.addActor(colBox, { expand: true });
+        this.menu.addMenuItem(colItem);
+    },
+
+    _buildPopupDayRows: function() {
+        this._dayItems = [];
+        for (let i = 0; i < 7; i++) {
+            const item   = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-day-item' });
+            const box    = new St.BoxLayout({ style_class: 'weather-row' });
+            const labels = [];
+            for (let c = 0; c < COL_HEADERS.length; c++) {
+                const lbl = new St.Label({ text: '—', style_class: `weather-cell weather-col-${c}` });
+                box.add_child(lbl);
+                labels.push(lbl);
+            }
+            item.addActor(box, { expand: true });
+            this.menu.addMenuItem(item);
+            this._dayItems.push({ labels, box });
+        }
+    },
+
+    _buildPopupFooter: function() {
+        this._footerItem  = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-footer-item' });
+        this._footerLabel = new St.Label({ text: '', style_class: 'weather-footer-label' });
+        this._footerItem.addActor(this._footerLabel, { expand: true });
+        this.menu.addMenuItem(this._footerItem);
+    },
+
+    _addPopupStyleClass: function(cls) {
+        try {
+            if (this.menu && this.menu.actor && this.menu.actor.add_style_class_name)
+                this.menu.actor.add_style_class_name(cls);
+        } catch (e) {
+            global.logError('mint-weather: failed to add popup style class: ' + e);
+        }
+    },
+
+    // ── Popup rendering ───────────────────────────────────────────────────
+
+    _updatePopup: function() {
+        if (!this._forecast || !this._menuBuilt) return;
+
+        this._headerLabel.set_text(`${this._cityName}  —  прогноз на неделю`);
+
+        const fc    = this._forecast;
+        const count = Math.min(fc.dates.length, 7);
+        const now   = new Date();
+
+        for (let i = 0; i < 7; i++) {
+            const { labels, box } = this._dayItems[i];
+            if (i >= count) { labels.forEach(l => l.set_text('')); continue; }
+            this._renderDayRow(labels, box, i, fc);
+        }
+
+        this._footerLabel.set_text(
+            `Обновлено: ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+        );
+        this._applyDayNightClass(now, fc);
+    },
+
+    _renderDayRow: function(labels, box, i, fc) {
+        const date      = fc.dates[i];
+        const tmax      = fc.tmax[i]      !== null ? `+${Math.round(fc.tmax[i])}°`                    : '—';
+        const tmin      = fc.tmin[i]      !== null ? `${Math.round(fc.tmin[i])}°`                     : '—';
+        const wind      = fc.wind[i]      !== null ? `${Math.round(fc.wind[i])} ${windArrow(fc.winddir[i])}` : '—';
+        const precip    = fc.precip[i]    != null  ? `${fc.precip[i]}%`                               : '—';
+        const precipSum = fc.precipSum[i] != null  ? `${fc.precipSum[i].toFixed(1)}мм`                : '—';
+        const uv        = fc.uv[i]        != null  ? `${Math.round(fc.uv[i])}`                        : '—';
+        const sunStr    = `↑${sliceTime(fc.sunrise[i])} ↓${sliceTime(fc.sunset[i])}`;
+        const [, desc]  = wmoInfo(fc.codes[i]);
+
+        labels[0].set_text(formatDate(date));
+        labels[1].set_text(desc);
+        labels[2].set_text(`${tmax} / ${tmin}`);
+        labels[3].set_text(wind);
+        labels[4].set_text(precip);
+        labels[5].set_text(sunStr);
+        labels[6].set_text(uv);
+        labels[7].set_text(precipSum);
+
+        box.style_class = isToday(date) ? 'weather-row weather-today' : 'weather-row';
+    },
+
+    _applyDayNightClass: function(now, fc) {
+        try {
+            if (this.menu && this.menu.actor && this.menu.actor.remove_style_class_name &&
+                    fc.sunrise && fc.sunset && fc.sunrise[0] && fc.sunset[0]) {
+                const isDayNow = now >= new Date(fc.sunrise[0]) && now < new Date(fc.sunset[0]);
+                this.menu.actor.remove_style_class_name('weather-day');
+                this.menu.actor.remove_style_class_name('weather-night');
+                this.menu.actor.add_style_class_name(isDayNow ? 'weather-day' : 'weather-night');
+            }
+        } catch (e) {
+            global.logError('mint-weather: day/night toggle failed: ' + e);
+        }
+    },
+
     // ── Applet events ─────────────────────────────────────────────────────
+
     on_applet_clicked: function(event) {
         if (!this._menuBuilt) {
             this._buildPopupSkeleton();
@@ -410,7 +429,7 @@ WeatherApplet.prototype = {
             GLib.source_remove(this._timer);
             this._timer = null;
         }
-    }
+    },
 };
 
 function main(metadata, orientation, panelHeight, instance_id) {

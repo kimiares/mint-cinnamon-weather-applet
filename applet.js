@@ -165,10 +165,16 @@ WeatherApplet.prototype = {
                        'winddirection_10m_dominant,weathercode,precipitation_probability_max,' +
                        'precipitation_sum,uv_index_max,sunrise,sunset';
         const hourly = 'relative_humidity_2m';
+        // If user chose 'auto', use the system local timezone so sunrise/sunset
+        // times are always returned in the user's local time, not the timezone
+        // inferred from coordinates (which may differ in winter, e.g. Kyiv vs Moscow).
+        const tz = (this._tz === 'auto')
+            ? GLib.TimeZone.new_local().get_identifier()
+            : this._tz;
         return 'https://api.open-meteo.com/v1/forecast'
              + `?latitude=${this._lat}&longitude=${this._lon}`
              + `&daily=${daily}&hourly=${hourly}`
-             + `&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;
+             + `&timezone=${encodeURIComponent(tz)}&forecast_days=7`;
     },
 
     _refresh: function() {
@@ -435,7 +441,14 @@ WeatherApplet.prototype = {
         const uuid = this._uuid || 'mint-weather@copilot';
         const iid  = this.instance_id || '';
         const cmd  = `xlet-settings applet ${uuid}` + (iid ? ` -i ${iid}` : '') + ` -t ${tab}`;
-        GLib.spawn_command_line_async(cmd);
+        global.log(`[mint-weather] configureApplet called: ${cmd}`);
+        try {
+            let [ok, argv] = GLib.shell_parse_argv(cmd);
+            let proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
+            proc.wait_async(null, null);
+        } catch(e) {
+            global.logError('[mint-weather] configureApplet error: ' + e.message);
+        }
     },
 };
 

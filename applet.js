@@ -266,9 +266,7 @@ WeatherApplet.prototype = {
     _updatePanelIndicator: function() {
         const fc         = this._forecast;
         const [iconName] = wmoInfo(fc.codes[0]);
-        // Icon handling disabled; show temperature label only
-        const iconToSet  = Gtk.IconTheme.get_default().has_icon(iconFull) ? iconFull : 'weather-clear-symbolic';
-        this.set_applet_icon_symbolic_name(iconToSet);
+        // Icon handling disabled; show temperature label only (no applet icon set)
 
         const tmax = fc.tmax[0];
         const tmin = fc.tmin[0];

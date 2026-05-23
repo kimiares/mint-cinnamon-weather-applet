@@ -41,6 +41,29 @@ function wmoInfo(code) {
     return WMO_ICONS[code] || ['weather-severe-alert', `Код ${code}`];
 }
 
+// Map OpenWeatherMap weather id -> approximate WMO code used by WMO_ICONS
+function mapOWMToWmo(id) {
+    if (id === null || id === undefined) return null;
+    // Thunderstorm 200-232 -> 95
+    if (id >= 200 && id < 300) return 95;
+    // Drizzle 300-321 -> 51
+    if (id >= 300 && id < 500) return 51;
+    // Rain 500-531 -> 63
+    if (id >= 500 && id < 600) return 63;
+    // Snow 600-622 -> 73
+    if (id >= 600 && id < 700) return 73;
+    // Atmosphere (mist, fog) 700-781 -> 45
+    if (id >= 700 && id < 800) return 45;
+    // Clear 800 -> 0
+    if (id === 800) return 0;
+    // Clouds 801-804 -> 1/2/3
+    if (id === 801) return 1;
+    if (id === 802) return 2;
+    if (id === 803 || id === 804) return 3;
+    return null;
+}
+
+
 // ── Wind direction degrees → Unicode arrow ────────────────────────────────
 function windArrow(deg) {
     if (deg === null || deg === undefined) return '';
@@ -142,13 +165,23 @@ WeatherApplet.prototype = {
             return GLib.SOURCE_CONTINUE;
         });
     },
-
     _loadSettings: function() {
         this._lat      = this._settings ? this._settings.get_double('latitude')        : 55.7558;
         this._lon      = this._settings ? this._settings.get_double('longitude')       : 37.6173;
         this._tz       = this._settings ? this._settings.get_string('timezone')        : 'auto';
         this._cityName = this._settings ? this._settings.get_string('city-name')       : 'Погода';
         this._interval = this._settings ? this._settings.get_int('refresh-interval')   : 600;
+        // data source: 'open-meteo' (default) or 'openweathermap'
+        try {
+            this._dataSource = this._settings ? this._settings.get_string('data-source') : 'open-meteo';
+        } catch (e) {
+            this._dataSource = 'open-meteo';
+        }
+        try {
+            this._apiKey = this._settings ? this._settings.get_string('api-key') : '';
+        } catch (e) {
+            this._apiKey = '';
+        }
     },
 
     // ── Build the static popup skeleton ──────────────────────────────────
@@ -198,6 +231,35 @@ WeatherApplet.prototype = {
         this._footerLabel = new St.Label({ text: '', style_class: 'weather-footer-label' });
         this._footerItem.addActor(this._footerLabel, { expand: true });
         this.menu.addMenuItem(this._footerItem);
+        // Data source selector (click to cycle)
+        this._sourceItem = new PopupMenu.PopupBaseMenuItem({ reactive: true, style_class: 'weather-source-item' });
+        this._sourceLabel = new St.Label({ text: `Источник: ${this._dataSource || 'open-meteo'}`, style_class: 'weather-source-label' });
+        this._sourceItem.addActor(this._sourceLabel, { expand: true });
+        this._sourceItem.connect('activate', () => {
+            try {
+                const sources = ['open-meteo','openweathermap'];
+                const idx = sources.indexOf(this._dataSource) >= 0 ? sources.indexOf(this._dataSource) : 0;
+                const next = sources[(idx + 1) % sources.length];
+                let setOk = false;
+                if (this._settings) {
+                    try {
+                        this._settings.set_string('data-source', next);
+                        try { this._apiKey = this._settings.get_string('api-key'); } catch (e) { this._apiKey = ''; }
+                        setOk = true;
+                    } catch (e) {
+                        global.logError('mint-weather: cannot set data-source key: ' + e);
+                    }
+                }
+                if (!setOk) {
+                    this._dataSource = next;
+                    try { if (this._settings) this._apiKey = this._settings.get_string('api-key'); } catch (e) { this._apiKey = ''; }
+                }
+                this._sourceLabel.set_text(`Источник: ${next}`);
+                this._refresh();
+            } catch (e) { global.logError('mint-weather: source cycle failed: ' + e); }
+        });
+        this.menu.addMenuItem(this._sourceItem);
+
     },
 
     // ── Populate rows from cached forecast ───────────────────────────────
@@ -252,8 +314,17 @@ WeatherApplet.prototype = {
     _refresh: function() {
         const daily  = 'temperature_2m_max,temperature_2m_min,windspeed_10m_max,winddirection_10m_dominant,weathercode,precipitation_probability_max,precipitation_sum,uv_index_max,sunrise,sunset';
         const hourly = 'relative_humidity_2m';
-        const url    = `https://api.open-meteo.com/v1/forecast?latitude=${this._lat}&longitude=${this._lon}`
-                     + `&daily=${daily}&hourly=${hourly}&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;
+        let url = null;
+        if (this._dataSource === 'openweathermap') {
+            if (!this._apiKey || this._apiKey.length === 0) {
+                this._setError('OpenWeatherMap API key not set');
+                return;
+            }
+            url = `https://api.openweathermap.org/data/2.5/onecall?lat=${this._lat}&lon=${this._lon}&exclude=minutely,hourly&units=metric&appid=${this._apiKey}&lang=ru`;
+        } else {
+            url = `https://api.open-meteo.com/v1/forecast?latitude=${this._lat}&longitude=${this._lon}`
+                 + `&daily=${daily}&hourly=${hourly}&timezone=${encodeURIComponent(this._tz)}&forecast_days=7`;
+        }
 
         if (this._httpSession && Soup) {
             try {
@@ -297,7 +368,36 @@ WeatherApplet.prototype = {
     _handleResponse: function(text) {
         try {
             const d = JSON.parse(text);
-            if (!d || !d.daily) { this._setError('Нет данных'); return; }
+            if (!d) { this._setError('Нет данных'); return; }
+
+            // Detect OpenWeatherMap error responses (e.g. invalid API key)
+            if (d.cod && (d.cod === 401 || d.cod === '401')) { this._setError('OpenWeatherMap: Invalid API key'); return; }
+            if (d.cod && d.message) { this._setError(`OpenWeatherMap: ${d.message}`); return; }
+
+            if (!d.daily) { this._setError('Нет данных'); return; }
+
+            // If OpenWeatherMap response (daily[].temp exists as object) normalize to structure used by Open-Meteo
+            if (d.daily && d.daily.length && d.daily[0].temp && typeof d.daily[0].temp === 'object') {
+                const od = d.daily;
+                const norm = { time: [], temperature_2m_max: [], temperature_2m_min: [], windspeed_10m_max: [], winddirection_10m_dominant: [], weathercode: [], precipitation_probability_max: [], precipitation_sum: [], uv_index_max: [], sunrise: [], sunset: [] };
+                for (let i=0;i<od.length && i<7;i++) {
+                    const it = od[i];
+                    const date = new Date(it.dt * 1000);
+                    norm.time.push(date.toISOString().slice(0,10));
+                    norm.temperature_2m_max.push(it.temp.max || null);
+                    norm.temperature_2m_min.push(it.temp.min || null);
+                    norm.windspeed_10m_max.push(it.wind_speed || null);
+                    norm.winddirection_10m_dominant.push(it.wind_deg || null);
+                    const w = (it.weather && it.weather[0] && it.weather[0].id) ? it.weather[0].id : null;
+                    norm.weathercode.push(mapOWMToWmo(w));
+                    norm.precipitation_probability_max.push((it.pop !== undefined && it.pop !== null) ? Math.round(it.pop * 100) : null);
+                    norm.precipitation_sum.push((it.rain !== undefined ? it.rain : (it.snow !== undefined ? it.snow : null)) || null);
+                    norm.uv_index_max.push(it.uvi || null);
+                    norm.sunrise.push(new Date(it.sunrise * 1000).toISOString());
+                    norm.sunset.push(new Date(it.sunset * 1000).toISOString());
+                }
+                d.daily = { time: norm.time, temperature_2m_max: norm.temperature_2m_max, temperature_2m_min: norm.temperature_2m_min, windspeed_10m_max: norm.windspeed_10m_max, winddirection_10m_dominant: norm.winddirection_10m_dominant, weathercode: norm.weathercode, precipitation_probability_max: norm.precipitation_probability_max, precipitation_sum: norm.precipitation_sum, uv_index_max: norm.uv_index_max, sunrise: norm.sunrise, sunset: norm.sunset };
+            }
 
             const daily  = d.daily;
             const hourly = d.hourly || {};

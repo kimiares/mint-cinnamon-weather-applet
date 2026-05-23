@@ -273,8 +273,8 @@ WeatherApplet.prototype = {
                 if (this._settings) {
                     try {
                         this._settings.set_string('data-source', next);
-                        try { this._apiKey = this._settings.get_string('api-key'); } catch (e) { this._apiKey = ''; }
-                        try { this._meteostatKey = this._settings.get_string('meteostat-api-key'); } catch (e) { this._meteostatKey = ''; }
+                        try { const tmpApi = this._settings.get_string('api-key'); if (tmpApi && tmpApi.length) this._apiKey = tmpApi; } catch (e) { this._apiKey = ''; }
+                        try { const tmpM = this._settings.get_string('meteostat-api-key'); if (tmpM && tmpM.length) this._meteostatKey = tmpM; } catch (e) { this._meteostatKey = ''; }
                         setOk = true;
                     } catch (e) {
                         global.logError('mint-weather: cannot set data-source key: ' + e);
@@ -284,8 +284,8 @@ WeatherApplet.prototype = {
                     this._dataSource = next;
                     try {
                         if (this._settings) {
-                            this._apiKey = this._settings.get_string('api-key');
-                            this._meteostatKey = this._settings.get_string('meteostat-api-key');
+                            try { const tmpApi = this._settings.get_string('api-key'); if (tmpApi && tmpApi.length) this._apiKey = tmpApi; } catch (e) { this._apiKey = ''; }
+                            try { const tmpM = this._settings.get_string('meteostat-api-key'); if (tmpM && tmpM.length) this._meteostatKey = tmpM; } catch (e) { this._meteostatKey = ''; }
                         }
                     } catch (e) { this._apiKey = ''; this._meteostatKey = ''; }
                 }

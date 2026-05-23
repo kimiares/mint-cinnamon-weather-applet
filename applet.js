@@ -393,20 +393,39 @@ WeatherApplet.prototype = {
             // Meteostat via RapidAPI requires x-rapidapi-host and x-rapidapi-key headers
             // Ensure we have a meteostat key at runtime: check settings, then local schema file, then fallback to apiKey
             let key = (this._meteostatKey && this._meteostatKey.length) ? this._meteostatKey : (this._apiKey || '');
-            if ((!key || key.length === 0) && this._metadataPath) {
-                try {
-                    const schemaPath = this._metadataPath + '/schemas/org.cinnamon.applets.mint-weather.gschema.xml';
-                    const [ok, contents] = GLib.file_get_contents(schemaPath);
-                    if (ok && contents) {
-                        const txt = ByteArray.toString(contents);
-                        const m = txt.match(/<key\s+name="meteostat-api-key"[\s\S]*?<default>([\s\S]*?)<\/default>/i);
-                        if (m && m[1]) {
-                            const raw = m[1].trim().replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
-                            if (raw && raw.length > 0) key = raw;
+
+            // Diagnostic logging to file for debugging key detection
+            try {
+                const dbg = '/home/constantine/.copilot/session-state/mint-weather-debug.log';
+                const now = new Date().toISOString();
+                const meta = this._metadataPath ? this._metadataPath : 'NULL';
+                const pre = `--- ${now} REFRESH START (dataSource=${this._dataSource}) ---\nmetadataPath=${meta}\nmeteostatKey_len=${this._meteostatKey ? this._meteostatKey.length : 0}\napiKey_len=${this._apiKey ? this._apiKey.length : 0}\ninitial_key_len=${key ? key.length : 0}\n`;
+                GLib.spawn_command_line_sync(`bash -c "printf '%s' \"${pre}\" >> '${dbg}'"`);
+                if ((!key || key.length === 0) && this._metadataPath) {
+                    try {
+                        const schemaPath = this._metadataPath + '/schemas/org.cinnamon.applets.mint-weather.gschema.xml';
+                        const exists = GLib.file_test(schemaPath, GLib.FileTest.EXISTS);
+                        GLib.spawn_command_line_sync(`bash -c "printf 'schema_exists=${exists}\n' >> '${dbg}'"`);
+                        const [ok, contents] = GLib.file_get_contents(schemaPath);
+                        if (ok && contents) {
+                            const txt = ByteArray.toString(contents);
+                            const m = txt.match(/<key\s+name="meteostat-api-key"[\s\S]*?<default>([\s\S]*?)<\/default>/i);
+                            if (m && m[1]) {
+                                const raw = m[1].trim().replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
+                                GLib.spawn_command_line_sync(`bash -c "printf 'schema_default_raw=%s\\n' \"${raw}\" >> '${dbg}'"`);
+                                if (raw && raw.length > 0) key = raw;
+                            } else {
+                                GLib.spawn_command_line_sync(`bash -c "printf 'schema_default_not_found\\n' >> '${dbg}'"`);
+                            }
+                        } else {
+                            GLib.spawn_command_line_sync(`bash -c "printf 'schema_read_failed\\n' >> '${dbg}'"`);
                         }
-                    }
-                } catch (e) { global.logError('mint-weather: runtime schema read failed: ' + e); }
-            }
+                    } catch (e) { global.logError('mint-weather: runtime schema read failed: ' + e); GLib.spawn_command_line_sync(`bash -c "printf 'schema_exception=%s\\n' \"${e}\" >> '${dbg}'"`); }
+                }
+                const final = `final_key_len=${key ? key.length : 0}\n`;
+                GLib.spawn_command_line_sync(`bash -c "printf '%s' \"${final}\" >> '${dbg}'"`);
+            } catch (e) { global.logError('mint-weather: debug write failed: ' + e); }
+
             if (!key || key.length === 0) {
                 this._setError('Meteostat API key not set');
                 return;

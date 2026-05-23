@@ -80,3 +80,11 @@
     font-size: 0.75em;
     color: #757575;
 }
+
+/* Day / Night subtle brightness */
+.applet-popup-menu.weather-popup.weather-day {
+    filter: brightness(1.08);
+}
+.applet-popup-menu.weather-popup.weather-night {
+    filter: brightness(0.88);
+}

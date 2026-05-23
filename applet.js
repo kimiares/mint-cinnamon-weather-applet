@@ -260,6 +260,13 @@ WeatherApplet.prototype = {
         });
         this.menu.addMenuItem(this._sourceItem);
 
+        // Mark the popup actor so stylesheet can target day/night adjustments
+        try {
+            if (this.menu && this.menu.actor && this.menu.actor.add_style_class_name) {
+                this.menu.actor.add_style_class_name('weather-popup');
+            }
+        } catch (e) { global.logError('mint-weather: failed to add popup style class: ' + e); }
+
     },
 
     // ── Populate rows from cached forecast ───────────────────────────────
@@ -308,6 +315,21 @@ WeatherApplet.prototype = {
 
         const now = new Date();
         this._footerLabel.set_text(`Обновлено: ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`);
+
+        // Day/night brightness toggle based on today's sunrise/sunset
+        try {
+            if (this.menu && this.menu.actor && fc.sunrise && fc.sunset && fc.sunrise[0] && fc.sunset[0]) {
+                const sr = new Date(fc.sunrise[0]);
+                const ss = new Date(fc.sunset[0]);
+                const isDayNow = now >= sr && now < ss;
+                if (this.menu.actor.remove_style_class_name) {
+                    this.menu.actor.remove_style_class_name('weather-day');
+                    this.menu.actor.remove_style_class_name('weather-night');
+                    this.menu.actor.add_style_class_name(isDayNow ? 'weather-day' : 'weather-night');
+                }
+            }
+        } catch (e) { global.logError('mint-weather: day/night toggle failed: ' + e); }
+
     },
 
     // ── Fetch from Open-Meteo ─────────────────────────────────────────────

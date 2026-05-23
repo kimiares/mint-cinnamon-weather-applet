@@ -391,7 +391,22 @@ WeatherApplet.prototype = {
             url = `https://api.openweathermap.org/data/2.5/onecall?lat=${this._lat}&lon=${this._lon}&exclude=minutely,hourly&units=metric&appid=${this._apiKey}&lang=ru`;
         } else if (this._dataSource === 'meteostat') {
             // Meteostat via RapidAPI requires x-rapidapi-host and x-rapidapi-key headers
-            const key = (this._meteostatKey && this._meteostatKey.length) ? this._meteostatKey : (this._apiKey || '');
+            // Ensure we have a meteostat key at runtime: check settings, then local schema file, then fallback to apiKey
+            let key = (this._meteostatKey && this._meteostatKey.length) ? this._meteostatKey : (this._apiKey || '');
+            if ((!key || key.length === 0) && this._metadataPath) {
+                try {
+                    const schemaPath = this._metadataPath + '/schemas/org.cinnamon.applets.mint-weather.gschema.xml';
+                    const [ok, contents] = GLib.file_get_contents(schemaPath);
+                    if (ok && contents) {
+                        const txt = ByteArray.toString(contents);
+                        const m = txt.match(/<key\s+name="meteostat-api-key"[\s\S]*?<default>([\s\S]*?)<\/default>/i);
+                        if (m && m[1]) {
+                            const raw = m[1].trim().replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
+                            if (raw && raw.length > 0) key = raw;
+                        }
+                    }
+                } catch (e) { global.logError('mint-weather: runtime schema read failed: ' + e); }
+            }
             if (!key || key.length === 0) {
                 this._setError('Meteostat API key not set');
                 return;

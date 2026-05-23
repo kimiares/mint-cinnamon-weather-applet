@@ -135,6 +135,9 @@ WeatherApplet.prototype = {
             this._settings = null;
         }
 
+        // remember metadata path for fallback schema reading
+        try { this._metadataPath = metadata.path; } catch (e) { this._metadataPath = null; }
+
         this._loadSettings();
 
         if (this._settings) {
@@ -187,7 +190,27 @@ WeatherApplet.prototype = {
         } catch (e) {
             this._meteostatKey = '';
         }
+
+        // If settings didn't provide a meteostat key (schema not installed), try to read default from local schema XML file
+        try {
+            if ((!this._meteostatKey || this._meteostatKey.length === 0) && this._metadataPath) {
+                const schemaPath = this._metadataPath + '/schemas/org.cinnamon.applets.mint-weather.gschema.xml';
+                try {
+                    const [ok, contents] = GLib.file_get_contents(schemaPath);
+                    if (ok && contents) {
+                        const txt = ByteArray.toString(contents);
+                        const m = txt.match(/<key\s+name="meteostat-api-key"[\s\S]*?<default>([\s\S]*?)<\/default>/i);
+                        if (m && m[1]) {
+                            // strip quotes and whitespace
+                            const raw = m[1].trim().replace(/^'(.*)'$/, '$1').replace(/^"(.*)"$/, '$1');
+                            if (raw && raw.length > 0) this._meteostatKey = raw;
+                        }
+                    }
+                } catch (e) { global.logError('mint-weather: failed reading schema file for meteostat key: ' + e); }
+            }
+        } catch (e) { /* ignore */ }
     },
+
 
 
     // ── Build the static popup skeleton ──────────────────────────────────
@@ -251,6 +274,7 @@ WeatherApplet.prototype = {
                     try {
                         this._settings.set_string('data-source', next);
                         try { this._apiKey = this._settings.get_string('api-key'); } catch (e) { this._apiKey = ''; }
+                        try { this._meteostatKey = this._settings.get_string('meteostat-api-key'); } catch (e) { this._meteostatKey = ''; }
                         setOk = true;
                     } catch (e) {
                         global.logError('mint-weather: cannot set data-source key: ' + e);
@@ -258,7 +282,12 @@ WeatherApplet.prototype = {
                 }
                 if (!setOk) {
                     this._dataSource = next;
-                    try { if (this._settings) this._apiKey = this._settings.get_string('api-key'); } catch (e) { this._apiKey = ''; }
+                    try {
+                        if (this._settings) {
+                            this._apiKey = this._settings.get_string('api-key');
+                            this._meteostatKey = this._settings.get_string('meteostat-api-key');
+                        }
+                    } catch (e) { this._apiKey = ''; this._meteostatKey = ''; }
                 }
                 this._sourceLabel.set_text(`Источник: ${next}`);
                 this._refresh();

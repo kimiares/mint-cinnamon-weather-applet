@@ -4,6 +4,7 @@ const Applet    = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
 const Settings    = imports.ui.settings;
 const St          = imports.gi.St;
+const Gtk         = imports.gi.Gtk;
 const GLib        = imports.gi.GLib;
 const Gio         = imports.gi.Gio;
 const ByteArray   = imports.byteArray;
@@ -127,7 +128,7 @@ WeatherApplet.prototype = {
 
         this._forecast = null;
         this._refresh();
-        this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, this._interval, () => {
+        this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, Math.round(this._interval), () => {
             this._refresh();
             return GLib.SOURCE_CONTINUE;
         });
@@ -249,11 +250,9 @@ WeatherApplet.prototype = {
     _updatePanelIndicator: function() {
         const fc         = this._forecast;
         const [iconName] = wmoInfo(fc.codes[0]);
-        try {
-            this.set_applet_icon_symbolic_name(`${iconName}-symbolic`);
-        } catch (e) {
-            this.set_applet_icon_symbolic_name('weather-clear-symbolic');
-        }
+        const iconFull   = `${iconName}-symbolic`;
+        const iconToSet  = Gtk.IconTheme.get_default().has_icon(iconFull) ? iconFull : 'weather-clear-symbolic';
+        this.set_applet_icon_symbolic_name(iconToSet);
 
         const tmax = fc.tmax[0];
         const tmin = fc.tmin[0];
@@ -361,8 +360,8 @@ WeatherApplet.prototype = {
 
     _renderDayRow: function(labels, box, i, fc) {
         const date      = fc.dates[i];
-        const tmax      = fc.tmax[i]      !== null ? `+${Math.round(fc.tmax[i])}°`                    : '—';
-        const tmin      = fc.tmin[i]      !== null ? `${Math.round(fc.tmin[i])}°`                     : '—';
+        const tmax      = fc.tmax[i]      !== null ? `${formatTemp(fc.tmax[i])}°`                     : '—';
+        const tmin      = fc.tmin[i]      !== null ? `${formatTemp(fc.tmin[i])}°`                     : '—';
         const wind      = fc.wind[i]      !== null ? `${Math.round(fc.wind[i])} ${windArrow(fc.winddir[i])}` : '—';
         const precip    = fc.precip[i]    != null  ? `${fc.precip[i]}%`                               : '—';
         const precipSum = fc.precipSum[i] != null  ? `${fc.precipSum[i].toFixed(1)}мм`                : '—';

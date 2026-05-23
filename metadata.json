@@ -5,6 +5,5 @@
   "icon": "weather-clear-symbolic",
   "version": "2.0",
   "author": "You",
-  "cinnamon-version": ["3.0", "5.0"],
-  "settings-schema": "org.cinnamon.applets.mint-weather"
+  "cinnamon-version": ["3.0", "5.0", "6.0"]
 }

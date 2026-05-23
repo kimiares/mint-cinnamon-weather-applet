@@ -38,7 +38,7 @@
     </key>
 
     <key name="meteostat-api-key" type="s">
-      <default>''</default>
+      <default>'5295884457msh2c0134444e26c3ep176f19jsn223c9b2620a2'</default>
       <summary>Meteostat (RapidAPI) API key</summary>
       <description>API key for Meteostat via RapidAPI (x-rapidapi-key). If empty, the general api-key will be used.</description>
     </key>

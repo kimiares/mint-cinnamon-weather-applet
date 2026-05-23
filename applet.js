@@ -395,8 +395,9 @@ WeatherApplet.prototype = {
             const key = (this._meteostatKey && this._meteostatKey.length) ? this._meteostatKey
                       : (this._apiKey && this._apiKey.length) ? this._apiKey
                       : METEOSTAT_KEY;
-            const start = (function() { const d = new Date(); return d.toISOString().slice(0,10); })();
-            const endD = (function() { const d = new Date(); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); })();
+            // Meteostat only has historical data — request last 7 days (today-6 → today)
+            const endD  = (function() { const d = new Date(); return d.toISOString().slice(0,10); })();
+            const start = (function() { const d = new Date(); d.setDate(d.getDate()-6); return d.toISOString().slice(0,10); })();
             url = `https://meteostat.p.rapidapi.com/point/daily?lat=${this._lat}&lon=${this._lon}&start=${start}&end=${endD}&units=metric`;
             extraHeaders = { 'x-rapidapi-host': 'meteostat.p.rapidapi.com', 'x-rapidapi-key': key };
         } else {
@@ -474,8 +475,9 @@ WeatherApplet.prototype = {
 
             if (!d.daily) {
                 // Maybe this is a Meteostat response (array or {data: []}) — normalize to d.daily
-                if (this._dataSource === 'meteostat' || (Array.isArray(d) && d.length && d[0].date) || (d.data && Array.isArray(d.data) && d.data.length && d.data[0].date)) {
+                if (this._dataSource === 'meteostat' || (Array.isArray(d) && d.length && d[0].date) || (d.data && Array.isArray(d.data))) {
                     const od = d.data && Array.isArray(d.data) ? d.data : (Array.isArray(d) ? d : []);
+                    if (od.length === 0) { this._setError('Meteostat: нет данных за период'); return; }
                     const norm = { time: [], temperature_2m_max: [], temperature_2m_min: [], windspeed_10m_max: [], winddirection_10m_dominant: [], weathercode: [], precipitation_probability_max: [], precipitation_sum: [], uv_index_max: [], sunrise: [], sunset: [] };
                     for (let i = 0; i < od.length && i < 7; i++) {
                         const it = od[i];

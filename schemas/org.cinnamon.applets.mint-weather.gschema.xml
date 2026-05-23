@@ -26,5 +26,22 @@
       <summary>Refresh interval (seconds)</summary>
       <description>How often to refresh weather data in seconds.</description>
     </key>
+    <key name="data-source" type="s">
+      <default>'open-meteo'</default>
+      <summary>Data source</summary>
+      <description>Weather data source: 'open-meteo' or 'openweathermap'</description>
+    </key>
+    <key name="api-key" type="s">
+      <default>''</default>
+      <summary>OpenWeatherMap API key</summary>
+      <description>API key for OpenWeatherMap. Leave empty to use Open-Meteo.</description>
+    </key>
+
+    <key name="meteostat-api-key" type="s">
+      <default>''</default>
+      <summary>Meteostat (RapidAPI) API key</summary>
+      <description>API key for Meteostat via RapidAPI (x-rapidapi-key). If empty, the general api-key will be used.</description>
+    </key>
+
   </schema>
 </schemalist>

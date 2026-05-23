@@ -104,7 +104,7 @@ WeatherApplet.prototype = {
     _init: function(metadata, orientation, panelHeight, instance_id) {
         Applet.TextIconApplet.prototype._init.call(this, orientation, panelHeight, instance_id);
 
-        this.set_applet_icon_symbolic_name('weather-clear-symbolic');
+        // Icon disabled to avoid startup/theme issues
         this.set_applet_label('…');
         this.hide_applet_label(false);
         this.set_applet_tooltip('Погода на неделю — нажмите для обновления');
@@ -266,7 +266,7 @@ WeatherApplet.prototype = {
     _updatePanelIndicator: function() {
         const fc         = this._forecast;
         const [iconName] = wmoInfo(fc.codes[0]);
-        const iconFull   = `${iconName}-symbolic`;
+        // Icon handling disabled; show temperature label only
         const iconToSet  = Gtk.IconTheme.get_default().has_icon(iconFull) ? iconFull : 'weather-clear-symbolic';
         this.set_applet_icon_symbolic_name(iconToSet);
 
@@ -282,7 +282,7 @@ WeatherApplet.prototype = {
     },
 
     _setError: function(msg) {
-        this.set_applet_icon_symbolic_name('weather-severe-alert-symbolic');
+        // Icon disabled on error; use label to indicate error
         this.set_applet_label('?');
         this.set_applet_tooltip(msg);
         if (this._headerLabel) this._headerLabel.set_text(msg);

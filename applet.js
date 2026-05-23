@@ -2,10 +2,11 @@
 
 const Applet    = imports.ui.applet;
 const PopupMenu = imports.ui.popupMenu;
-const St        = imports.gi.St;
-const GLib      = imports.gi.GLib;
-const Gio       = imports.gi.Gio;
-const ByteArray = imports.byteArray;
+const Settings    = imports.ui.settings;
+const St          = imports.gi.St;
+const GLib        = imports.gi.GLib;
+const Gio         = imports.gi.Gio;
+const ByteArray   = imports.byteArray;
 
 let Soup;
 try { Soup = imports.gi.Soup; } catch (e) { Soup = null; }
@@ -107,15 +108,19 @@ WeatherApplet.prototype = {
         this.hide_applet_label(false);
         this.set_applet_tooltip('Погода на неделю — нажмите для обновления');
 
-        this._initSettings(metadata);
-        this._loadSettings();
+        // Defaults (overwritten by bindProperty below)
+        this._lat      = 55.7558;
+        this._lon      = 37.6173;
+        this._tz       = 'auto';
+        this._cityName = 'Погода';
+        this._interval = 600;
 
-        if (this._settings) {
-            this._settings.connect('changed', () => {
-                this._loadSettings();
-                this._refresh();
-            });
-        }
+        this._appletSettings = new Settings.AppletSettings(this, 'mint-weather@copilot', instance_id);
+        this._appletSettings.bindProperty(Settings.BindingDirection.IN, 'latitude',         '_lat',      this._onSettingsChanged.bind(this));
+        this._appletSettings.bindProperty(Settings.BindingDirection.IN, 'longitude',        '_lon',      this._onSettingsChanged.bind(this));
+        this._appletSettings.bindProperty(Settings.BindingDirection.IN, 'timezone',         '_tz',       this._onSettingsChanged.bind(this));
+        this._appletSettings.bindProperty(Settings.BindingDirection.IN, 'city-name',        '_cityName', this._onSettingsChanged.bind(this));
+        this._appletSettings.bindProperty(Settings.BindingDirection.IN, 'refresh-interval', '_interval', this._onSettingsChanged.bind(this));
 
         this._initMenu(orientation);
         this._initHttp();
@@ -128,20 +133,8 @@ WeatherApplet.prototype = {
         });
     },
 
-    _initSettings: function(metadata) {
-        try {
-            const schemaDir    = metadata.path + '/schemas';
-            const schemaSource = Gio.SettingsSchemaSource.new_from_directory(
-                schemaDir,
-                Gio.SettingsSchemaSource.get_default(),
-                false
-            );
-            const schema = schemaSource.lookup('org.cinnamon.applets.mint-weather', true);
-            this._settings = new Gio.Settings({ settings_schema: schema });
-        } catch (e) {
-            global.logError('mint-weather: GSettings schema not found: ' + e);
-            this._settings = null;
-        }
+    _onSettingsChanged: function() {
+        this._refresh();
     },
 
     _initMenu: function(orientation) {
@@ -161,11 +154,7 @@ WeatherApplet.prototype = {
     },
 
     _loadSettings: function() {
-        this._lat      = this._settings ? this._settings.get_double('latitude')      : 55.7558;
-        this._lon      = this._settings ? this._settings.get_double('longitude')     : 37.6173;
-        this._tz       = this._settings ? this._settings.get_string('timezone')      : 'auto';
-        this._cityName = this._settings ? this._settings.get_string('city-name')     : 'Погода';
-        this._interval = this._settings ? this._settings.get_int('refresh-interval') : 600;
+        // kept for compatibility — settings are now bound via AppletSettings.bindProperty
     },
 
     // ── Data fetching ─────────────────────────────────────────────────────

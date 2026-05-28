@@ -1,35 +1,23 @@
 #!/usr/bin/env python3
 """
-Simple job-scraper for djinni.co, work.ua and robota.ua.
-This is a best-effort, standalone script that fetches the three pages and
-extracts job entries (title, company if available, location if available, url, source).
+Job-scraper for sites defined in sites.json.
+
+Two parsing strategies driven entirely by config — no site-specific code:
+  html — parse HTML with BeautifulSoup using CSS selectors from sites.json
+  api  — call a JSON REST API and extract structured fields from sites.json
 
 Usage:
   python3 jobs/scrape_jobs.py --query ".NET"
 
 Outputs JSON array to stdout.
-
-Note: requires requests and beautifulsoup4 (see requirements.txt).
-
-Site-specific strategies
-------------------------
-djinni.co   — HTML page; cards are <div class="job-item">; title in
-              <h2 class="job-item__position">, company in first
-              <span class="small text-gray-800 opacity-75">, link on
-              <a class="job_item__header-link">.
-
-work.ua     — HTML page; cards are <div class="card … job-link">;
-              title in <h2 class="my-0"><a>, company in
-              <span class="strong-600">.
-
-robota.ua   — Angular SPA (HTML is essentially empty).  Uses the public
-              REST API at api.robota.ua/vacancy/search which returns JSON
-              (no auth required).
+Requires: requests, beautifulsoup4  (see requirements.txt)
 """
 
 import argparse
 import json
+import os
 import re
+
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, quote_plus
@@ -41,21 +29,37 @@ HEADERS = {
     )
 }
 
-SITES = {
-    "djinni": "https://djinni.co/jobs/?primary_keyword={q}",
-    "workua": "https://www.work.ua/jobs-{q}/",
-    # robota.ua is a SPA; we query their public search API directly
-    "robota": (
-        "https://api.robota.ua/vacancy/search"
-        "?keyWords={q}&cityId=0&page=0&count=30"
-    ),
-}
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SITES_FILE = os.path.join(_SCRIPT_DIR, "sites.json")
 
-# Matches a djinni job-detail path like /jobs/695878-senior-net-developer/
-_DJINNI_JOB_RE = re.compile(r"^/jobs/\d+-[^/]+/?$")
 
-# Matches a work.ua job-detail path like /jobs/8116809/
-_WORKUA_JOB_RE = re.compile(r"^/jobs/\d+/?$")
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def load_sites(path=SITES_FILE):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        raise SystemExit(f"Error: sites config not found: {path}")
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"Error: invalid JSON in {path}: {e}")
+    if not isinstance(data, list):
+        raise SystemExit(f"Error: {path} must contain a JSON array of site configs")
+    return data
+
+
+def encode_query(q, method):
+    """Encode a query string for a given URL-construction method."""
+    if method == "quote_plus":
+        return quote_plus(q)
+    if method == "dash":
+        # work.ua-style: ".NET developer" → "net-developer"
+        # Strip non-word chars (dots, slashes, parens, plus…), collapse to hyphens
+        cleaned = re.sub(r"[^\w\s-]", "", q)
+        return re.sub(r"[\s_]+", "-", cleaned).lower().strip("-")
+    return q
 
 
 def fetch(url):
@@ -68,101 +72,76 @@ def fetch(url):
         return ""
 
 
+def _class_matches(element_classes, required):
+    """Return True if all required class(es) are present in element_classes."""
+    if not element_classes:
+        return False
+    if isinstance(required, list):
+        return all(k in element_classes for k in required)
+    return required in element_classes
+
+
 # ---------------------------------------------------------------------------
-# djinni.co
+# Generic HTML parser — handles djinni.co, work.ua and any future HTML site
 # ---------------------------------------------------------------------------
 
-def parse_djinni(html):
-    """Parse djinni.co search results page.
+def parse_html_jobs(html, cfg):
+    """Parse an HTML job-listings page using selectors defined in cfg.
 
-    Each job card is a <div class="job-item …">.  Within it:
-    - <a class="job_item__header-link">  →  href with the job URL
-    - <h2 class="job-item__position">   →  job title
-    - <span class="small text-gray-800 opacity-75 …">  →  company name
+    Supported cfg keys
+    ------------------
+    base_url            str         Used to build absolute URLs.
+    card_tag            str         Tag of the job-card element.
+    card_class          str|list    Class(es) that must be present on the card.
+    href_re             str         Regex the job-detail href must match.
+    link_wrapper_tag    str (opt)   Intermediate wrapper tag (e.g. "h2").
+    link_wrapper_class  str (opt)   Class on the wrapper (exact BeautifulSoup match).
+    link_class          str (opt)   Class on the <a> link tag.
+    title_tag           str (opt)   Tag holding the title; if absent, anchor text is used.
+    title_class         str (opt)   Class on the title tag.
+    company_tag         str (opt)   Tag holding the company name.
+    company_class       str|list    Class(es) on the company tag.
     """
-    soup = BeautifulSoup(html, 'html.parser')
-    base = 'https://djinni.co'
-    jobs = []
-    seen = set()
-
-    cards = [
-        tag for tag in soup.find_all(True)
-        if 'job-item' in ' '.join(tag.get('class', []))
-    ]
-
-    for card in cards:
-        # title
-        h2 = card.find('h2', class_=lambda c: c and 'job-item__position' in c)
-        title = h2.get_text(strip=True) if h2 else None
-
-        # link — the wrapper anchor that covers the whole header
-        a_tag = card.find('a', class_=lambda c: c and 'job_item__header-link' in c)
-        if not a_tag:
-            # Fallback: first anchor whose href matches the job-detail pattern
-            a_tag = card.find('a', href=_DJINNI_JOB_RE)
-        if not a_tag:
-            continue
-
-        href = a_tag.get('href', '')
-        if not _DJINNI_JOB_RE.match(href):
-            continue
-
-        url = urljoin(base, href)
-        if url in seen:
-            continue
-        seen.add(url)
-
-        # company — the small grey text right under the title inside the link
-        company_span = a_tag.find(
-            'span',
-            class_=lambda c: c and 'text-gray-800' in c and 'small' in c,
-        )
-        company = company_span.get_text(strip=True) if company_span else None
-
-        if not title:
-            title = a_tag.get_text(separator=' ', strip=True)
-
-        jobs.append({
-            'title': title,
-            'company': company or None,
-            'location': None,
-            'url': url,
-        })
-
-    return jobs
-
-
-# ---------------------------------------------------------------------------
-# work.ua
-# ---------------------------------------------------------------------------
-
-def parse_workua(html):
-    """Parse work.ua search results page.
-
-    Each job card is a <div class="card … job-link …">.  Within it:
-    - <h2 class="my-0"><a href="/jobs/NNNN/">  →  title and URL
-    - <span class="strong-600">               →  company name
-    """
-    soup = BeautifulSoup(html, 'html.parser')
-    base = 'https://www.work.ua'
+    for required in ("base_url", "card_tag", "card_class", "href_re"):
+        if required not in cfg:
+            raise ValueError(f"parse_html_jobs: missing required config key '{required}' in site '{cfg.get('name', '?')}'")
+    soup = BeautifulSoup(html, "html.parser")
+    base = cfg["base_url"]
+    href_re = re.compile(cfg["href_re"])
+    card_class = cfg["card_class"]
     jobs = []
     seen = set()
 
     cards = soup.find_all(
-        'div',
-        class_=lambda c: c and 'job-link' in c and 'card' in c,
+        cfg["card_tag"],
+        class_=lambda c: _class_matches(c, card_class),
     )
 
     for card in cards:
-        h2 = card.find('h2', class_='my-0')
-        if not h2:
-            continue
-        a_tag = h2.find('a', href=True)
+        # Optionally narrow anchor-search scope to a wrapper element
+        search_root = card
+        if cfg.get("link_wrapper_tag"):
+            wrapper = card.find(
+                cfg["link_wrapper_tag"],
+                class_=cfg.get("link_wrapper_class"),
+            )
+            if wrapper:
+                search_root = wrapper
+
+        # Find the job-detail anchor
+        link_class = cfg.get("link_class")
+        if link_class:
+            a_tag = search_root.find("a", class_=lambda c: c and link_class in c)
+            if not a_tag:
+                a_tag = search_root.find("a", href=href_re)
+        else:
+            a_tag = search_root.find("a", href=True)
+
         if not a_tag:
             continue
 
-        href = a_tag.get('href', '')
-        if not _WORKUA_JOB_RE.match(href):
+        href = a_tag.get("href", "")
+        if not href_re.match(href):
             continue
 
         url = urljoin(base, href)
@@ -170,73 +149,96 @@ def parse_workua(html):
             continue
         seen.add(url)
 
-        title = a_tag.get_text(strip=True)
+        # Title: from dedicated tag, or fall back to anchor text
+        title_tag = cfg.get("title_tag")
+        if title_tag:
+            title_class = cfg.get("title_class")
+            t = (
+                card.find(title_tag, class_=lambda c: c and title_class in c)
+                if title_class
+                else card.find(title_tag)
+            )
+            title = t.get_text(strip=True) if t else a_tag.get_text(separator=" ", strip=True)
+        else:
+            title = a_tag.get_text(strip=True)
 
-        # Company: first <span class="strong-600"> inside the card
-        company_span = card.find('span', class_=lambda c: c and 'strong-600' in c)
-        company = company_span.get_text(strip=True) if company_span else None
+        # Company (optional)
+        company = None
+        company_tag = cfg.get("company_tag")
+        if company_tag:
+            company_class = cfg.get("company_class")
+            cs = (
+                card.find(company_tag, class_=lambda c: _class_matches(c, company_class))
+                if company_class
+                else card.find(company_tag)
+            )
+            company = cs.get_text(strip=True) if cs else None
 
-        jobs.append({
-            'title': title,
-            'company': company or None,
-            'location': None,
-            'url': url,
-        })
+        jobs.append({"title": title, "company": company or None, "location": None, "url": url})
 
     return jobs
 
 
 # ---------------------------------------------------------------------------
-# robota.ua  (public JSON API — no authentication required)
+# API parser — handles robota.ua and any future REST/JSON site
 # ---------------------------------------------------------------------------
 
-def parse_robota(api_response):
-    """Parse the robota.ua vacancy search API JSON response.
+def parse_api_jobs(response_text, cfg):
+    """Parse a JSON REST API response using field names from cfg.
 
-    The API returns a JSON object with a ``documents`` list.  Each entry has:
-    - id           →  used to build the vacancy URL
-    - notebookId   →  employer notebook ID (also in URL)
-    - name         →  job title
-    - companyName  →  company
-    - cityName     →  location
+    Supported cfg keys
+    ------------------
+    items_path      str     Key in the JSON object that holds the list of items.
+    id_field        str     Field name for the vacancy ID.
+    title_field     str     Field name for the job title.
+    notebook_field  str     Field name for the employer ID (used in URL).
+    company_field   str     Field name for the company name.
+    location_field  str     Field name for the city/location.
+    url_pattern     str     URL template with {id} and {notebookId} placeholders.
+    url_fallback    str     URL template with only {id} (used when notebook absent).
     """
+    for required in ("items_path", "id_field", "title_field"):
+        if required not in cfg:
+            raise ValueError(f"parse_api_jobs: missing required config key '{required}' in site '{cfg.get('name', '?')}'")
     jobs = []
     try:
-        data = json.loads(api_response)
+        data = json.loads(response_text)
     except (json.JSONDecodeError, ValueError):
         return jobs
 
-    for doc in data.get('documents', []):
-        vacancy_id = doc.get('id')
-        notebook_id = doc.get('notebookId')
-        title = doc.get('name', '').strip()
-        company = doc.get('companyName', '').strip() or None
-        location = doc.get('cityName', '').strip() or None
+    notebook_field = cfg.get("notebook_field", "")
 
+    for doc in data.get(cfg["items_path"], []):
+        vacancy_id = doc.get(cfg["id_field"])
+        title = doc.get(cfg["title_field"], "").strip()
         if not vacancy_id or not title:
             continue
 
-        # Canonical vacancy URL used on the site
-        if notebook_id:
-            url = f"https://robota.ua/company/{notebook_id}/vacancy/{vacancy_id}"
-        else:
-            url = f"https://robota.ua/vacancy/{vacancy_id}"
+        company = (doc.get(cfg.get("company_field", "")) or "").strip() or None
+        location = (doc.get(cfg.get("location_field", "")) or "").strip() or None
+        notebook_id = doc.get(notebook_field) if notebook_field else None
 
-        jobs.append({
-            'title': title,
-            'company': company,
-            'location': location,
-            'url': url,
-        })
+        if notebook_id is not None and "url_pattern" in cfg:
+            url = cfg["url_pattern"].format(id=vacancy_id, notebookId=notebook_id)
+        elif "url_fallback" in cfg:
+            url = cfg["url_fallback"].format(id=vacancy_id)
+        else:
+            continue  # no URL can be constructed — skip this entry
+
+        jobs.append({"title": title, "company": company, "location": location, "url": url})
 
     return jobs
 
+
+# ---------------------------------------------------------------------------
+# Deduplication & main runner
+# ---------------------------------------------------------------------------
 
 def dedupe(jobs):
     out = []
     seen = set()
     for j in jobs:
-        key = j.get('url') or (j.get('title') + '|' + (j.get('company') or ''))
+        key = j.get("url") or (j.get("title", "") + "|" + (j.get("company") or ""))
         if key in seen:
             continue
         seen.add(key)
@@ -244,55 +246,47 @@ def dedupe(jobs):
     return out
 
 
-def run(query):
-    q = query.strip()
-    q_enc = quote_plus(q)
-    # work.ua expects a hyphenated path like 'net-developer'
-    q_dash = q.replace('.', '').replace(' ', '-').lower().strip('-')
+def run(query, sites=None):
+    if sites is None:
+        sites = load_sites()
+
     results = []
+    for site in sites:
+        q = encode_query(query.strip(), site.get("query_encoding", "quote_plus"))
+        url = site["url_template"].format(q=q)
+        response = fetch(url)
+        if not response:
+            continue
 
-    # Djinni
-    url = SITES['djinni'].format(q=q_enc)
-    html = fetch(url)
-    if html:
-        items = parse_djinni(html)
+        if site["type"] == "html":
+            items = parse_html_jobs(response, site)
+        elif site["type"] == "api":
+            items = parse_api_jobs(response, site)
+        else:
+            continue
+
+        label = site.get("label", site["name"])
         for it in items:
-            it['source'] = 'djinni'
-            results.append(it)
+            it["source"] = label
+        results.extend(items)
 
-    # work.ua
-    url = SITES['workua'].format(q=q_dash)
-    html = fetch(url)
-    if html:
-        items = parse_workua(html)
-        for it in items:
-            it['source'] = 'work.ua'
-            results.append(it)
-
-    # robota.ua
-    url = SITES['robota'].format(q=quote_plus(q))
-    html = fetch(url)
-    if html:
-        items = parse_robota(html)
-        for it in items:
-            it['source'] = 'robota.ua'
-            results.append(it)
-
-    results = dedupe(results)
-    return results
+    return dedupe(results)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Scrape job listings from three sites (best-effort).')
-    parser.add_argument('--query', '-q', default='.NET', help='Search query (e.g. ".NET").')
-    parser.add_argument('--output', '-o', help='Output file (JSON). If omitted prints to stdout.')
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Scrape job listings from sites defined in sites.json."
+    )
+    parser.add_argument("--query", "-q", default=".NET", help='Search query (e.g. ".NET").')
+    parser.add_argument("--output", "-o", help="Output file (JSON). If omitted, prints to stdout.")
     args = parser.parse_args()
 
     items = run(args.query)
     data = json.dumps(items, ensure_ascii=False, indent=2)
     if args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
+        with open(args.output, "w", encoding="utf-8") as f:
             f.write(data)
-        print(f'Wrote {len(items)} items to {args.output}')
+        print(f"Wrote {len(items)} items to {args.output}")
     else:
         print(data)
+

@@ -1,0 +1,48 @@
+[
+  {
+    "name": "djinni",
+    "label": "djinni",
+    "type": "html",
+    "base_url": "https://djinni.co",
+    "url_template": "https://djinni.co/jobs/?primary_keyword={q}",
+    "query_encoding": "quote_plus",
+    "card_tag": "div",
+    "card_class": "job-item",
+    "link_class": "job_item__header-link",
+    "href_re": "^/jobs/\\d+-[^/]+/?$",
+    "title_tag": "h2",
+    "title_class": "job-item__position",
+    "company_tag": "span",
+    "company_class": ["small", "text-gray-800"]
+  },
+  {
+    "name": "workua",
+    "label": "work.ua",
+    "type": "html",
+    "base_url": "https://www.work.ua",
+    "url_template": "https://www.work.ua/jobs-{q}/",
+    "query_encoding": "dash",
+    "card_tag": "div",
+    "card_class": ["card", "job-link"],
+    "link_wrapper_tag": "h2",
+    "link_wrapper_class": "my-0",
+    "href_re": "^/jobs/\\d+/?$",
+    "company_tag": "span",
+    "company_class": "strong-600"
+  },
+  {
+    "name": "robota",
+    "label": "robota.ua",
+    "type": "api",
+    "url_template": "https://api.robota.ua/vacancy/search?keyWords={q}&cityId=0&page=0&count=30",
+    "query_encoding": "quote_plus",
+    "items_path": "documents",
+    "id_field": "id",
+    "notebook_field": "notebookId",
+    "title_field": "name",
+    "company_field": "companyName",
+    "location_field": "cityName",
+    "url_pattern": "https://robota.ua/company/{notebookId}/vacancy/{id}",
+    "url_fallback": "https://robota.ua/vacancy/{id}"
+  }
+]

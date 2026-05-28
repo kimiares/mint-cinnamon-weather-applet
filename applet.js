@@ -116,9 +116,6 @@ WeatherApplet.prototype = {
         this._cityName = 'Погода';
         this._interval = 600;
 
-        this._appletPath = metadata.path;
-        this._jobs       = [];
-
         this._appletSettings = new Settings.AppletSettings(this, 'mint-weather@copilot', instance_id);
         this._appletSettings.bindProperty(Settings.BindingDirection.IN, 'latitude',         '_lat',      this._onSettingsChanged.bind(this));
         this._appletSettings.bindProperty(Settings.BindingDirection.IN, 'longitude',        '_lon',      this._onSettingsChanged.bind(this));
@@ -299,8 +296,6 @@ WeatherApplet.prototype = {
         this._buildPopupDayRows();
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._buildPopupFooter();
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._buildJobsSection();
         this._addPopupStyleClass('weather-popup');
     },
 
@@ -343,106 +338,6 @@ WeatherApplet.prototype = {
         this._footerLabel = new St.Label({ text: '', style_class: 'weather-footer-label' });
         this._footerItem.addActor(this._footerLabel, { expand: true });
         this.menu.addMenuItem(this._footerItem);
-    },
-
-    _buildJobsSection: function() {
-        // Section header
-        const headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-header-item' });
-        const headerLbl  = new St.Label({ text: '💼 Вакансии .NET', style_class: 'weather-header-label' });
-        headerItem.addActor(headerLbl, { expand: true });
-        this.menu.addMenuItem(headerItem);
-
-        // Status / loading indicator
-        this._jobsStatusItem  = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-footer-item' });
-        this._jobsStatusLabel = new St.Label({ text: 'Загрузка вакансий…', style_class: 'weather-footer-label' });
-        this._jobsStatusItem.addActor(this._jobsStatusLabel, { expand: true });
-        this.menu.addMenuItem(this._jobsStatusItem);
-
-        // Pre-allocate rows (hidden until populated)
-        this._jobItems = [];
-        for (let i = 0; i < 30; i++) {
-            const item    = new PopupMenu.PopupBaseMenuItem({ reactive: false, style_class: 'weather-day-item' });
-            const box     = new St.BoxLayout({ style_class: 'weather-row' });
-            const srcLbl  = new St.Label({ text: '', style_class: 'weather-cell weather-col-0' });
-            const titLbl  = new St.Label({ text: '', style_class: 'weather-cell weather-col-1' });
-            const compLbl = new St.Label({ text: '', style_class: 'weather-cell weather-col-2' });
-            box.add_child(srcLbl);
-            box.add_child(titLbl);
-            box.add_child(compLbl);
-            item.addActor(box, { expand: true });
-            item.actor.visible = false;
-            this.menu.addMenuItem(item);
-            this._jobItems.push({ item, srcLbl, titLbl, compLbl });
-        }
-    },
-
-    // Async: spawn Python scraper, parse JSON output, update UI
-    _fetchJobs: function() {
-        // Prevent concurrent fetches
-        if (this._jobsFetchInProgress) return;
-        this._jobsFetchInProgress = true;
-
-        const scriptPath = this._appletPath + '/jobs/scrape_jobs.py';
-        if (this._jobsStatusLabel) this._jobsStatusLabel.set_text('Загрузка вакансий…');
-        if (this._jobsStatusItem)  this._jobsStatusItem.actor.visible = true;
-        try {
-            const cancellable = new Gio.Cancellable();
-            this._jobsCancellable = cancellable;
-            const proc = Gio.Subprocess.new(
-                ['timeout', '20', 'python3', scriptPath, '--query', '.NET'],
-                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
-            );
-            proc.communicate_utf8_async(null, cancellable, (p, res) => {
-                this._jobsFetchInProgress = false;
-                this._jobsCancellable = null;
-                if (this._isDestroyed) return;
-                try {
-                    const [, stdout, stderr] = p.communicate_utf8_finish(res);
-                    if (stdout && stdout.trim()) {
-                        this._jobs = JSON.parse(stdout);
-                        this._updateJobsSection();
-                    } else {
-                        global.logError('mint-weather jobs: ' + (stderr || 'empty output'));
-                        if (this._jobsStatusLabel) this._jobsStatusLabel.set_text('Ошибка загрузки вакансий');
-                    }
-                } catch (e) {
-                    global.logError('mint-weather jobs parse: ' + e);
-                    if (this._jobsStatusLabel) this._jobsStatusLabel.set_text('Ошибка разбора вакансий');
-                }
-            });
-        } catch (e) {
-            this._jobsFetchInProgress = false;
-            global.logError('mint-weather jobs spawn: ' + e);
-            if (this._jobsStatusLabel) this._jobsStatusLabel.set_text('python3 не найден или ошибка скрипта');
-        }
-    },
-
-    _updateJobsSection: function() {
-        const jobs  = this._jobs || [];
-        const limit = Math.min(jobs.length, this._jobItems.length);
-
-        for (let i = 0; i < this._jobItems.length; i++) {
-            const { item, srcLbl, titLbl, compLbl } = this._jobItems[i];
-            if (i < limit) {
-                const j = jobs[i];
-                srcLbl.set_text(`[${j.source || '?'}]`);
-                titLbl.set_text(j.title    || '');
-                compLbl.set_text(j.company || '');
-                item.actor.visible = true;
-            } else {
-                item.actor.visible = false;
-            }
-        }
-
-        if (this._jobsStatusItem) {
-            if (jobs.length === 0) {
-                this._jobsStatusLabel.set_text('Вакансии не найдены');
-                this._jobsStatusItem.actor.visible = true;
-            } else {
-                this._jobsStatusLabel.set_text(`Найдено: ${jobs.length} вакансий`);
-                this._jobsStatusItem.actor.visible = true;
-            }
-        }
     },
 
     _addPopupStyleClass: function(cls) {
@@ -528,16 +423,10 @@ WeatherApplet.prototype = {
                 this._updatePopup();
                 return GLib.SOURCE_REMOVE;
             });
-            this._fetchJobs();
         }
     },
 
     on_applet_removed: function() {
-        this._isDestroyed = true;
-        if (this._jobsCancellable) {
-            this._jobsCancellable.cancel();
-            this._jobsCancellable = null;
-        }
         if (this._timer) {
             GLib.source_remove(this._timer);
             this._timer = null;
